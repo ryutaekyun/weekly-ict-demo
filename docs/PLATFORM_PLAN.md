@@ -149,42 +149,68 @@ RSS 수집 엔진(`app/services/collection.py`)을 구현해 **실제 공인 출
 
 ---
 
-## 7. Phase 2-1 — ICT 9대 분야 실제 수집 확대 (2026-10-22)
+## 7. Phase 2-1 — ICT 9대 분야 실제 수집 확대 (2026-10-22, 사용자 품질 재검증 반영)
 
-### 7-1. 분야별 출처 확보 현황
+최초 구현 직후 사용자가 "단순 등록이 아니라 실제 저장 여부", "원문 링크가 개별 문서로 연결되는가", "보고서 집필에 쓸 수 있는 자료인가" 3가지를 짚어 재검증을 요청했고, 실제로 점검해 보니 **3건의 실제 결함**이 나와 전부 고쳤다. 아래 7-0이 그 내용이고, 7-1·7-2는 수정 반영 후 최종 상태다.
+
+### 7-0. 품질 재검증에서 발견·수정한 결함
+
+1. **API 응답에 원문 요약이 아예 빠져 있었음** — DB(`source_documents.raw_text`)에는 arXiv 초록·Federal Register abstract가 제대로(수백~2천자 이상) 저장돼 있었는데, `SourceDocumentOut` 스키마에 `raw_text` 필드를 넣지 않아 API로는 조회가 안 됐다. 스키마에 추가해 수정 — "제목만 가져온다"는 우려는 데이터 자체의 문제가 아니라 API 노출 누락이었다.
+2. **문서 목록 정렬이 사실상 임의순이었음** — `GET /sources/{id}/documents`가 `collected_at desc`로 정렬했는데, 한 번의 수집에서 저장되는 문서들은 `collected_at`이 밀리초 단위로만 다르거나 같아서 "최신순"이 보장되지 않았다(실제로 2018~2024년 문서가 앞쪽에 뜨는 현상 발생). `published_at desc`로 정렬 기준을 바꿔 수정.
+3. **출처 3곳(NTIA/FCC/NHTSA)이 기관 전체 피드라 관리성 공지가 다수 섞여 있었음** — 필터 없이 기관 전체를 긁으면 Privacy Act 기록공고·OMB 서류수집 공고 같은 행정 잡음이 결과 상당수를 차지했다. 아래처럼 좁혔다:
+   - NTIA: 필터 없음 → `term=broadband`(광대역 프로그램·디지털포용 관련 건으로 한정)
+   - FCC: 필터 없음 → `type=RULE,PROPOSED RULE`(확정/입법예고 규칙만, 공지성 문서 제외)
+   - NHTSA: 필터 없음 → `term="autonomous vehicle"`(일반 차량안전 규정 제외, 자율주행 관련 건만)
+   - ICT 융합기술의 NSF "Convergence Accelerator" 출처는 재점검 결과 응답이 전부 행정공고뿐이라 **완전히 폐기**하고, 실제 내용이 확인된 OSTP(백악관 과학기술정책실)로 교체.
+
+수정 후 재검증(2026-10-22, 동일 세션 재실행): 10개 출처 전부 2025~2026년 최신 문서, 문서당 요약 150~2,500자 확보. 품질 기준을 만족하는지 아래 7-0-1에서 3가지 질문별로 직접 답한다.
+
+### 7-0-1. 사용자가 지정한 3가지 기준에 대한 답
+
+**① 9개 분야 모두 수집 성공 — 실제 저장까지 확인했는가?**
+예. 10개 출처 전부 `status=success`로 실행 완료, `source_documents` 테이블을 SQLite로 직접 SELECT해 분야별 실제 행 수를 확인했다(API 응답만 보고 판단하지 않음). 재수집 시 중복 0건 삽입도 실측 확인(아래 7-2 하단).
+
+**② 원문 링크가 실제 개별 문서로 연결되는가?**
+예. 브라우저로 직접 열어 확인했다 — FCC 문서(`.../upper-c-band-398-42-ghz-...`)는 기관·조치유형·발효일·담당자 연락처까지 담긴 실제 규칙 전문 페이지였고, BIS 반도체 문서도 동일하게 확인됨. arXiv·NIST·W3C는 각 페이지의 `<title>`이 저장된 제목과 정확히 일치함을 curl로 확인했다. 전부 기관 홈페이지나 검색결과 화면이 아니라 문서 하나하나의 고유 URL(Federal Register는 `/documents/YYYY/MM/DD/문서ID-slug`, arXiv는 `/abs/논문ID`)이다.
+
+**③ 추후 보고서 집필에 쓸 수 있는 자료인가?**
+수정 전에는 아니었다 — 위 7-0의 3번 문제 그대로였다면 "Sunshine Act 회의 공고", "OMB 서류수집 공고" 같은 무관한 행정문서가 샘플 상단을 차지했을 것이다. 수정 후에는 분야별로 실질적인 정책·규제·연구 문서(예: FCC의 상위 C-밴드 주파수 확대, BIS의 폴리실리콘 비축 규제, NHTSA의 Zoox 자율주행차 임시면제 승인, OSTP의 첨단제조 국가전략 RFI)가 상위에 오르고, 각 문서에 150~2,500자의 실제 요약(summary/abstract)이 함께 저장돼 있어 원고 집필 시 바로 참고할 수 있는 수준이다. 다만 NTIA는 광대역 프로그램 관련이어도 일부(약 40%)가 "정보수집 활동 공고" 형태의 행정문서라 — 이 출처 하나는 품질이 완전하지 않음을 밝혀둔다(7-4 참고).
+
+### 7-1. 분야별 출처 확보 현황 (최종)
 
 9대 분야 전부 **최소 1곳 이상 실제 작동 확인**. "분야별 2곳 이상" 목표는 인공지능·데이터 1개 분야만 달성했고, 나머지 8개 분야는 1곳씩이다(사유는 7-4 참고).
 
-| 분야 | 출처명 | 공식 URL(요약) | 자료 유형 | 수집 방식 | 실제 수집 성공 | 신규 수집(이번 실행) |
-|---|---|---|---|---|---|---|
-| 인공지능·데이터 | arXiv cs.AI | export.arxiv.org/rss/cs.AI | 논문(프리프린트) | RSS | ✅ | 50건 |
-| 인공지능·데이터 | Federal Register — NIST×AI | federalregister.gov/api/v1/articles.json?agencies=nist&term=artificial+intelligence | 정책·고시 | API | ✅ | 20건 |
-| 통신·네트워크 | W3C News | w3.org/news/feed | 표준화 동향 | RSS | ✅ | 25건 |
-| 보안·블록체인 | NIST News | nist.gov/news-events/news/rss.xml | 보도자료 | RSS | ✅ | 40건 |
-| 디지털사회혁신 | Federal Register — NTIA | federalregister.gov/api/v1/articles.json?agencies=ntia | 정책·고시 | API | ✅ | 20건 |
-| 방송·전파·위성 | Federal Register — FCC | federalregister.gov/api/v1/articles.json?agencies=fcc | 정책·규제 | API | ✅ | 20건 |
-| SW·자율주행 | Federal Register — NHTSA | federalregister.gov/api/v1/articles.json?agencies=nhtsa | 정책·규제 | API | ✅ | 19건(1건 중복 자동 제외) |
-| 콘텐츠·미디어 | Federal Register — US Copyright Office | federalregister.gov/api/v1/articles.json?agencies=copyright-office | 정책·법령 | API | ✅ | 20건 |
-| 반도체·양자 | Federal Register — BIS×반도체 | federalregister.gov/api/v1/articles.json?agencies=bis&term=semiconductor | 수출통제 법령 | API | ✅ | 20건 |
-| ICT 융합기술 | Federal Register — NSF Convergence Accelerator | federalregister.gov/api/v1/articles.json?agencies=nsf&term=convergence | 정책·연구프로그램 공고 | API | ✅ | 20건(갱신 빈도 낮음, 7-4 참고) |
+| 분야 | 출처명 | 수집 방식 | 필터 | 실제 수집 성공 | 신규 수집(이번 실행) |
+|---|---|---|---|---|---|
+| 인공지능·데이터 | arXiv cs.AI | RSS | — | ✅ | 50건 |
+| 인공지능·데이터 | Federal Register — NIST×AI | API | agency=NIST, term="artificial intelligence" | ✅ | 20건 |
+| 통신·네트워크 | W3C News | RSS | — | ✅ | 25건 |
+| 보안·블록체인 | NIST News | RSS | — | ✅ | 40건 |
+| 디지털사회혁신 | Federal Register — NTIA | API | agency=NTIA, term="broadband" | ✅ | 20건 |
+| 방송·전파·위성 | Federal Register — FCC | API | agency=FCC, type=RULE/PRORULE | ✅ | 20건 |
+| SW·자율주행 | Federal Register — NHTSA | API | agency=NHTSA, term="autonomous vehicle" | ✅ | 20건 |
+| 콘텐츠·미디어 | Federal Register — US Copyright Office | API | agency=Copyright Office | ✅ | 20건 |
+| 반도체·양자 | Federal Register — BIS×반도체 | API | agency=BIS, term="semiconductor" | ✅ | 20건 |
+| ICT 융합기술 | Federal Register — OSTP | API | agency=OSTP | ✅ | 20건 |
 
-전체 URL은 `apps/api/app/seed_sources.py`에 있다(이 표는 가독성을 위해 쿼리스트링을 축약했다).
+전체 URL은 `apps/api/app/seed_sources.py`에 있다.
 
-### 7-2. 실제 수집 사례 (2026-10-22 라이브 실행, 실제 DB 저장 확인됨)
+### 7-2. 실제 수집 사례 (2026-10-22 품질 수정 후 재실행, 제목·요약·발표일·URL 전부 라이브로 재확인)
 
-| 분야 | 원문 제목 | 발표일 | 원문 URL | DB 저장 |
+| 분야 | 원문 제목 | 발표일 | 원문 URL | 요약 길이 |
 |---|---|---|---|---|
-| 인공지능·데이터 | The More the Better? A Comparison of Single- and Multi-Agent LLM Setups on a Financial Review Task | 2026-10-22 | arxiv.org/abs/2610.27488 | ✅ |
-| 통신·네트워크 | W3C Invites Implementations of EPUB 3.4, EPUB Reading Systems 3.4 and EPUB Accessibility 1.2 | 2026-07-21 | w3.org/news/2026/w3c-invites-implementations-of-epub-3-4-... | ✅ |
-| 보안·블록체인 | NIST Allocates Over $3 Million to Small Businesses Advancing AI, Biotechnology, Semiconductors, Quantum and More | 2026-02-10 | nist.gov/news-events/news/2026/02/nist-allocates-over-3-million-... | ✅ |
-| 디지털사회혁신 | First Responder Network Authority; Public Combined Board and Board Committees Meeting | 2025-05-20 | federalregister.gov/documents/2025/05/20/2025-08976-... | ✅ |
-| 방송·전파·위성 | Information Collection Being Submitted for Review and Approval to OMB | 2026-10-08 | federalregister.gov/documents/2026/10/08/2026-20681-... | ✅ |
-| SW·자율주행 | Ford Motor Company, Receipt of Petition for Decision of Inconsequential Noncompliance | 2026-09-21 | federalregister.gov/documents/2026/09/21/2026-19256-... | ✅ |
-| 콘텐츠·미디어 | Group Registration of Updates to a News Website | 2024-07-22 | federalregister.gov/documents/2024/07/22/2024-15880-... | ✅ |
-| 반도체·양자 | Implementation of Additional Export Controls: Certain Advanced Computing Items; Supercomputer and Semiconductor End Use... | 2024-04-04 | federalregister.gov/documents/2024/04/04/2024-07004-... | ✅ |
-| ICT 융합기술 | Sunshine Act Meetings; National Science Board | 2018-05-02 | federalregister.gov/documents/2018/05/02/2018-09346-... | ✅ |
+| 인공지능·데이터 | The More the Better? A Comparison of Single- and Multi-Agent LLM Setups on a Financial Review Task | 2026-10-22 | arxiv.org/abs/2610.27488 | 1,459자 |
+| 인공지능·데이터(FR) | NIST Artificial Intelligence Consortium | 2026-05-29 | federalregister.gov/documents/2026/05/29/2026-10779-... | 2,487자 |
+| 통신·네트워크 | W3C and the State of the Web in the AI Era | 2026-10-21 | w3.org/news/2026/w3c-and-the-state-of-the-web-in-the-ai-era | 355자 |
+| 보안·블록체인 | New Chip-Based 'Tape Measure' for Light Could Revolutionize Mobile Timekeeping | 2026-10-16 | nist.gov/news-events/news/2026/10/new-chip-based-tape-measure-light-... | 109자 |
+| 디지털사회혁신 | NTIA Listening Session on Screen-Based Instruction in K-12 Schools | 2026-08-27 | federalregister.gov/documents/2026/08/27/2026-17435-... | 786자 |
+| 방송·전파·위성 | Upper C-Band (3.98-4.2 GHz); Expanding Flexible Use of the 3.7 to 4.2 GHz Band | 2026-10-19 | federalregister.gov/documents/2026/10/19/2026-21324-... | 337자(브라우저로 전문 확인) |
+| SW·자율주행 | Zoox — Grant of Temporary Exemption ... for an Automated Driving System-Equipped Vehicle | 2026-07-31 | federalregister.gov/documents/2026/07/31/2026-15485-... | 1,351자 |
+| 콘텐츠·미디어 | Music Streaming Fraud | 2026-10-07 | federalregister.gov/documents/2026/10/07/2026-20537-... | 164자 |
+| 반도체·양자 | Measures To Restrict Stockpiling of Polysilicon and Polysilicon Derivatives Under Proclamation 11052 | 2026-09-24 | federalregister.gov/documents/2026/09/24/2026-19537-... | 1,043자(브라우저로 전문 확인) |
+| ICT 융합기술 | United States Global Change Research Program; Availability for Public Comment... (NCA5) | 2026-08-25 | federalregister.gov/documents/2026/08/25/2026-17289-... | 380자 |
 
-라이브 실행 결과 전체: 10개 출처 모두 `status: success`, 총 254건 신규 저장(실제 `source_documents` 테이블 직접 조회로 확인). 재수집 시 arXiv 50건 전부 `items_duplicate`로 분류되어 신규 삽입 0건(중복방지 확인). 존재하지 않는 URL로 만든 테스트 출처는 실제 404를 받아 `status: failed`, `error_type: http_4xx`로 정확히 기록됨(성공으로 집계되지 않음).
+라이브 실행 결과 전체: 10개 출처 모두 `status: success`, 총 254건 실제 DB 저장(`source_documents` 테이블 직접 SELECT로 확인, API 응답만으로 판단하지 않음). 재수집 시 arXiv 50건 전부 `items_duplicate`로 분류되어 신규 삽입 0건(중복방지 재확인). 존재하지 않는 URL로 만든 테스트 출처는 실제 404를 받아 `status: failed`, `error_type: http_4xx`로 정확히 기록됨(성공으로 집계되지 않음).
 
 ### 7-3. 개발 결과
 
@@ -197,6 +223,8 @@ RSS 수집 엔진(`app/services/collection.py`)을 구현해 **실제 공인 출
 - "동일 URL·내용 변경" 개정판 추적: `previous_version_id`로 연결된 새 버전 행 생성(완전 중복과는 다른 개념으로 분리, `items_updated` 카운트 별도 집계)
 - 출처 반복 실패 시 자동 비활성화 대신 `needs_review` 플래그(3회 연속 실패 시 설정, `is_active`는 그대로 유지)
 - `GET /sources/{id}`(문서수·최근 실행상태 포함), `PATCH /sources/{id}`(관리자 전용 — 활성화/비활성화/검토플래그 해제 등) 신규 API
+- (품질 재검증 중 수정) `SourceDocumentOut` 응답에 `raw_text`(요약) 필드 추가 — 누락돼 있어 API로는 요약을 받을 수 없었음
+- (품질 재검증 중 수정) `GET /sources/{id}/documents` 정렬 기준을 `collected_at desc` → `published_at desc`로 변경 — 전자는 동일 배치 삽입 시 사실상 임의 순서였음
 
 **데이터베이스 구조 변경** — 마이그레이션 2건(`0f8878ee2c82` 외, 상세는 alembic/versions 참고)
 - `source_documents.origin_url`의 UNIQUE 제약 제거(개정판 다중 저장을 위함), 비유니크 인덱스로 대체
@@ -213,7 +241,8 @@ RSS 수집 엔진(`app/services/collection.py`)을 구현해 **실제 공인 출
 **추후 보완 필요**
 - 분야별 2곳 이상 확보 목표 미달(7곳 분야가 1곳뿐) — 추가 리서치 필요
 - 전부 영문 해외 출처뿐 — 일본 총무성·경제산업성, 중국 공업정보화부, 대만 디지털발전부 등 RFP가 명시한 아시아권 기관은 이번 라운드에 실제 접속 가능한 공식 API/RSS를 확인하지 못해 보류(개별 사이트 로그인/캡차 없는 공개 엔드포인트 존재 여부를 더 조사해야 함)
-- ICT 융합기술(NSF Convergence Accelerator) 출처는 게시 빈도가 낮아(최신 문서가 2018~2023년대) 실시간성이 떨어짐 — 대체·보강 출처 필요
+- NTIA(디지털사회혁신) 출처는 `term=broadband`로 좁혀도 상위 결과의 약 40%가 "정보수집 활동 공고" 류의 행정문서다 — 완전히 만족스러운 수준은 아니며 대체·보강 출처가 필요하다
+- Federal Register 문서는 `raw_text`에 공식 abstract/summary만 저장되고 본문 전문은 아직 가져오지 않는다 — 전문이 필요하면 Phase 2-2에서 각 문서 페이지 자체를 파싱해야 한다
 
 ### 7-4. 미확보 분야·사유 및 대체 방안
 

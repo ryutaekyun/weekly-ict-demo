@@ -161,9 +161,11 @@ def list_documents(
     _: User = Depends(get_current_user),
 ):
     _get_source_or_404(db, source_id)
+    # collected_at으로 정렬하면 한 번의 수집 실행에서 들어온 문서들의 insert 순서가
+    # 사실상 임의로 보여 "최신 문서"와 다른 순서로 나올 수 있다 — 발표일 기준으로 정렬한다.
     stmt = (
         select(SourceDocument)
         .where(SourceDocument.source_id == source_id)
-        .order_by(SourceDocument.collected_at.desc())
+        .order_by(SourceDocument.published_at.desc().nulls_last(), SourceDocument.collected_at.desc())
     )
     return db.scalars(stmt).all()

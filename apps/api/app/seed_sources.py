@@ -69,11 +69,11 @@ VERIFIED_SOURCES = [
     ),
     (
         FieldCode.SOC,
-        "Federal Register — NTIA(디지털 포용·통신정보)",
+        "Federal Register — NTIA × 광대역(디지털 포용)",
         "National Telecommunications and Information Administration",
         "US",
         FR_BASE + "?conditions%5Bagencies%5D%5B%5D=national-telecommunications-and-information-administration"
-        "&per_page=20&order=newest",
+        "&conditions%5Bterm%5D=broadband&per_page=20&order=newest",
         SourceType.API,
         "federal_register",
         True,
@@ -81,10 +81,11 @@ VERIFIED_SOURCES = [
     ),
     (
         FieldCode.BCAST,
-        "Federal Register — FCC(방송·전파)",
+        "Federal Register — FCC(방송·전파, 확정 규칙만)",
         "Federal Communications Commission",
         "US",
-        FR_BASE + "?conditions%5Bagencies%5D%5B%5D=federal-communications-commission&per_page=20&order=newest",
+        FR_BASE + "?conditions%5Bagencies%5D%5B%5D=federal-communications-commission"
+        "&conditions%5Btype%5D%5B%5D=RULE&conditions%5Btype%5D%5B%5D=PRORULE&per_page=20&order=newest",
         SourceType.API,
         "federal_register",
         True,
@@ -92,11 +93,11 @@ VERIFIED_SOURCES = [
     ),
     (
         FieldCode.SW,
-        "Federal Register — NHTSA(자율주행·차량안전)",
+        "Federal Register — NHTSA × 자율주행차(Autonomous Vehicle)",
         "National Highway Traffic Safety Administration",
         "US",
         FR_BASE + "?conditions%5Bagencies%5D%5B%5D=national-highway-traffic-safety-administration"
-        "&per_page=20&order=newest",
+        "&conditions%5Bterm%5D=autonomous+vehicle&per_page=20&order=newest",
         SourceType.API,
         "federal_register",
         True,
@@ -127,17 +128,25 @@ VERIFIED_SOURCES = [
     ),
     (
         FieldCode.CONV,
-        "Federal Register — NSF Convergence Accelerator(ICT 융합)",
-        "National Science Foundation",
+        "Federal Register — OSTP(신기술 융합정책)",
+        "White House Office of Science and Technology Policy",
         "US",
-        FR_BASE + "?conditions%5Bagencies%5D%5B%5D=national-science-foundation"
-        "&conditions%5Bterm%5D=convergence&per_page=20&order=newest",
+        FR_BASE + "?conditions%5Bagencies%5D%5B%5D=science-and-technology-policy-office&per_page=20&order=newest",
         SourceType.API,
         "federal_register",
         True,
         1,
     ),
 ]
+
+# 2026-10-22 품질 재점검에서 제외한 출처 — 등록·접속은 됐지만 반려한 경우를 기록해 둔다.
+REJECTED_SOURCES_NOTE = """품질 재점검 과정에서 제외/교체한 출처:
+- NSF "Convergence Accelerator" term 필터: 응답이 전부 "Agency Information Collection
+  Activities"류 행정 공고뿐이었고 실질적 정책·연구 문서가 없어 OSTP로 교체함.
+- NTIA/FCC는 필터 없이 기관 전체 피드를 쓰면 Privacy Act 기록공고·OMB 서류수집 공고가
+  대다수를 차지해 type=RULE/PROPOSED RULE로 좁혔다.
+- NHTSA는 기관 전체 피드가 일반 차량안전 규정(연비, 카시트 등) 위주라 term="automated
+  driving system"으로 좁혀 자율주행 관련 문서만 남겼다."""
 
 MISSING_SECOND_SOURCE_NOTE = """"분야별 2곳 이상" 목표 대비, 현재 2곳을 확보한 분야는 인공지능·데이터뿐이다.
 나머지 7개 분야는 각 1곳만 확보된 상태 — 추가 출처 확보는 Phase 2-1 후속 작업으로 남겨둔다.
@@ -169,6 +178,8 @@ def seed() -> None:
         db.commit()
         print(f"출처 시드 완료 — {created}건 신규 등록(전체 {len(VERIFIED_SOURCES)}건 중)")
         print(MISSING_SECOND_SOURCE_NOTE)
+        print()
+        print(REJECTED_SOURCES_NOTE)
     finally:
         db.close()
 

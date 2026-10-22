@@ -73,6 +73,7 @@ class SourceDocumentOut(BaseModel):
     published_at: datetime | None
     document_updated_at: datetime | None
     collected_at: datetime
+    raw_text: str | None
     language: str | None
     country_code: str | None
     document_type: DocumentType
