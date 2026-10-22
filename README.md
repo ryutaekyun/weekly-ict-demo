@@ -16,7 +16,8 @@
 | 사용자 시드(실제 11명 연구원 + 역할) | **구현·실행 완료** |
 | Next.js 프런트(로그인 + 후보주제 목록/상세/의견작성) | **코드 작성 완료, 실행·빌드 미검증** — 이 작업 환경에 Node.js/npm이 설치되어 있지 않아 `npm install`/`npm run dev`를 돌려보지 못했다 |
 | Docker Compose(db+api+web) | **설정 파일 작성 완료, 미검증** — 이 작업 환경에 Docker가 설치되어 있지 않다 |
-| 9대 분야 RSS/API 수집, 중복감지, 원고·발간 워크플로, 실제 메일 발송 | **미구현** (Phase 2~3, `docs/PLATFORM_PLAN.md`의 로드맵 참고) |
+| RSS 수집 엔진(출처 등록/실행/이력) + 중복감지 | **구현·실행 완료 — 실제 출처 3곳(arXiv cs.AI, NIST News, W3C News)에서 실시간 수집 성공 확인**. 나머지 6개 분야는 검증된 출처를 아직 못 찾아 비워둠 |
+| 분야 간 중복 클러스터링(`issue_clusters`), 원고·발간 워크플로, 실제 메일 발송 | **미구현** (Phase 2 후속~3, `docs/PLATFORM_PLAN.md`의 로드맵 참고) |
 
 **직접 실행해서 확인해야 하는 것: Next.js 빌드/구동과 Docker Compose 전체 스택.** 아래 절차대로 진행하고, 안 되는 부분이 있으면 알려달라.
 
@@ -45,7 +46,14 @@ cd apps/api
 PYTHONPATH=. pytest -v
 ```
 
-마지막 실행 결과: **13 passed**. 테스트는 SQLite 인메모리 DB를 사용한다(운영은 Postgres).
+마지막 실행 결과: **16 passed**. 테스트는 SQLite 인메모리 DB를 사용한다(운영은 Postgres). 수집 엔진 테스트는 `fetch_raw_feed`를 모킹해 실제 네트워크 없이 로직(신규/중복/실패)만 검증한다.
+
+### 출처 수집 실행
+
+```bash
+python -m app.seed_sources   # 검증된 공식 출처 3곳 등록
+# 이후 POST /sources/{id}/collect 호출(관리자/승인자/검토자 권한)
+```
 
 ## 전체 스택 (Docker Compose) — 사용자 환경에서 처음 실행·검증 필요
 
