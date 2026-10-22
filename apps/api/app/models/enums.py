@@ -115,3 +115,43 @@ class PublicationChannel(str, enum.Enum):
     MAIL = "mail"
     ITFIND = "itfind"
     WEB = "web"
+
+
+# ---------------------------------------------------------------------------
+# Phase 2-2 — 문서별 자동분류·원문추출·활용가치판정·AI분석
+# ---------------------------------------------------------------------------
+
+
+class ClassificationMethod(str, enum.Enum):
+    """결과를 만든 주체 — 화면·보고서에 'AI 분석'이라고 표시해도 되는지 판단하는 근거가 된다."""
+
+    RULE_BASED = "rule_based"  # 키워드·규칙 기반 — AI 호출 없음, AI 분석으로 표시 금지
+    AI = "ai"  # 실제 LLM 호출 결과
+    RESEARCHER = "researcher"  # 연구원이 직접 입력/수정
+
+
+class ClassificationRelevance(str, enum.Enum):
+    MATCHED = "matched"  # ICT 9대 분야 중 하나로 판정됨
+    LOW_RELEVANCE = "low_relevance"  # 9대 분야와 관련성 낮음
+    PENDING_REVIEW = "pending_review"  # 판단 근거 불충분 — 분류 보류
+
+
+class ExtractionMethod(str, enum.Enum):
+    HTML = "html"
+    PDF = "pdf"
+    NONE = "none"
+
+
+class ExtractionStatus(str, enum.Enum):
+    SUCCESS = "success"
+    PARTIAL = "partial"  # 일부만 추출(예: PDF 일부 페이지 텍스트 레이어 없음)
+    SUMMARY_ONLY = "summary_only"  # 전문 접근 불가/비허용 — 기존 요약문만 사용
+    FAILED = "failed"  # 시도했으나 실패
+    NOT_ATTEMPTED = "not_attempted"  # 저작권·robots 등으로 시도 자체를 하지 않음
+
+
+class UsageValueRating(str, enum.Enum):
+    PRIORITY = "priority"  # 우선 검토
+    GENERAL = "general"  # 일반 검토
+    LOW_RELEVANCE = "low_relevance"  # 관련성 낮음
+    NEEDS_MORE_INFO = "needs_more_info"  # 추가 확인 필요

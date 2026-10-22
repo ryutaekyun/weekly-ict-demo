@@ -12,6 +12,11 @@ from app.models.manuscript_version import ManuscriptVersion
 from app.models.approval import Approval
 from app.models.publication import Publication
 from app.models.audit_log import AuditLog
+from app.models.document_classification import DocumentClassification, DocumentClassificationHistory
+from app.models.document_full_text import DocumentFullText
+from app.models.document_value_assessment import DocumentValueAssessment
+from app.models.document_structured_extract import DocumentStructuredExtract
+from app.models.ai_analysis_run import AIAnalysisRun
 
 __all__ = [
     "User",
@@ -28,4 +33,10 @@ __all__ = [
     "Approval",
     "Publication",
     "AuditLog",
+    "DocumentClassification",
+    "DocumentClassificationHistory",
+    "DocumentFullText",
+    "DocumentValueAssessment",
+    "DocumentStructuredExtract",
+    "AIAnalysisRun",
 ]

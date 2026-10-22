@@ -247,3 +247,92 @@ RSS 수집 엔진(`app/services/collection.py`)을 구현해 **실제 공인 출
 ### 7-4. 미확보 분야·사유 및 대체 방안
 
 "분야별 2곳 이상" 미달 7개 분야 공통 사유: 이번 라운드는 "이미 존재가 확인된 API/RSS"만 쓴다는 원칙에 따라 Federal Register라는 단일 공급자(미국) 중심으로 빠르게 9/9 분야 커버리지를 확보하는 데 집중했다. 그 결과 다양성(특히 비(非)미국·아시아권 1차 출처)이 부족하다. 다음 라운드에서 우선 조사할 후보: 일본 총무성(www.soumu.go.jp) 보도발표 RSS 유무, 경제산업성(www.meti.go.jp) 공지사항 피드, 3GPP/O-RAN ALLIANCE의 공개 문서 목록 API 또는 다운로드 페이지, EU Digital Strategy(digital-strategy.ec.europa.eu) 뉴스 섹션의 RSS 유무 — 전부 다음 라운드에서 실제 접속해 확인한 뒤에만 등록한다.
+
+## 8. Phase 2-2 — 원문 전문 추출·ICT 분야 자동 분류·실무 활용성 검증 (2026-10-22)
+
+Phase 2-1의 알려진 한계 두 가지(출처의 고정 분야를 문서 분야로 그대로 쓰는 문제, 요약만 있고 원문 전문이 없는 문제)를 해결하는 단계다. 완료 기준은 수집 건수가 아니라 "실제 원문을 확보하고 적절한 분야로 분류해 근거 있는 분석자료로 쓸 수 있는가"이므로, 아래 전부를 기존 254~255건 실데이터(삭제하지 않고 그대로 재처리)로 검증했다.
+
+### 8-1. 신규 아키텍처
+
+**신규 테이블 6개** (마이그레이션 `980507d2ffa1`, autogenerate로 생성 후 검수):
+- `document_classifications` — 문서별 "현재" 분류(주 분야/연관 분야/관련성/신뢰도/판정방식/근거). `SourceDocument.field_code`(Phase 2-1 때 출처 분야를 그대로 복사한 값)는 하위호환을 위해 그대로 두고 건드리지 않았다 — 이 테이블의 `primary_field_code`가 Phase 2-2 이후의 공식 분야다.
+- `document_classification_history` — 분류가 바뀔 때마다(최초 자동분류 포함) 한 행씩 남는 이력. 누가(연구원 ID 또는 시스템) 언제 무엇을 바꿨는지 추적.
+- `document_full_texts` — 원문 전문. 요약(`SourceDocument.raw_text`)과 분리 저장. 추출상태/방식/글자수/위치설명/실패사유/재추출시 변경여부를 함께 저장.
+- `document_value_assessments` — 실무 활용가치 판정(우선검토/일반검토/관련성낮음/추가확인필요) + 판정기준 6개 충족여부(JSON) + 근거 인용문.
+- `document_structured_extracts` — 핵심내용 구조화(핵심내용/배경목적/정책기술변화/핵심수치/핵심일정/관계기관/쟁점/예상영향(사실·AI분석 구분)/추가확인사항/원문출처인용).
+- `ai_analysis_runs` — AI(또는 규칙 기반) 분석 1회 호출 기록(공급자/모델/버전/상태/오류/재시도/처리시각) — 문서 분석 전용이 아니라 향후 보고서 집필·쟁점분석에도 재사용할 범용 로그 테이블로 설계.
+
+**신규 서비스 모듈** (`apps/api/app/services/`):
+- `field_taxonomy.py` — ICT 9대 분야의 정의·포함주제·제외주제·경계사례·키워드를 분야당 1곳에서 관리. 키워드만으로 분류 기준을 구성하지 말라는 지시에 따라 정의/포함/제외/경계사례를 1차 자료로, 키워드는 규칙 기반 분류기와 AI 프롬프트가 함께 참조하는 2차 자료로 둠.
+- `classification.py` — 문서별 자동 분류. AI 공급자가 설정돼 있으면 AI를 먼저 시도하고, 미설정이거나 호출 실패 시 **반드시** 규칙 기반(키워드 가중합)으로 대체하며 `method=rule_based`로 저장(AI 분석으로 표시 금지). 연구원 수정용 override 함수 포함.
+- `extraction.py` — HTML 본문 추출(BeautifulSoup, `<article>`/`<main>` 우선 → 최다 텍스트 블록 휴리스틱, robots.txt 사전 확인) + PDF 텍스트 추출(pypdf, 페이지당 평균 추출 글자수가 낮으면 스캔본으로 간주해 SUCCESS로 표시하지 않음) + arXiv 초록페이지→전문PDF URL 자동 유도.
+- `value_assessment.py` — 6개 기준(①분야관련성 ②정책산업중요성 ③단순행정공고 여부 ④내용충분성 ⑤시의성 ⑥출처신뢰성) 규칙 기반 판정. 시의성(최근7일/30일/90일/과거)은 저장하지 않고 **조회 시점마다 다시 계산**한다(저장하면 시간이 지나며 값이 거짓이 되므로).
+- `structured_extract.py` — 규칙 기반 모드에서는 원문에서 직접 패턴매칭 가능한 항목(핵심수치, 핵심일정, 관계기관)만 채우고, 해석이 필요한 항목(쟁점, 예상영향)은 "AI 미설정으로 생성하지 않음"으로 비워 둔다.
+- `ai_service.py` — 공급자 중립 AI 연동(Anthropic/OpenAI). 서버 환경변수(`AI_PROVIDER`/`AI_MODEL`/`ANTHROPIC_API_KEY`/`OPENAI_API_KEY`)로만 설정하며, 미설정이면 `get_ai_provider()`가 `None`을 반환해 호출부가 규칙 기반으로 대체하도록 강제한다. 긴 원문 분할(`chunk_text`), AI 응답 JSON 파싱(`extract_json_object`) 유틸 포함.
+- `pipeline.py` — 문서 1건에 대해 전문추출→분류→가치판정→구조화를 순서대로 실행하는 오케스트레이터. 관련성이 "낮음/보류"인 문서는 구조화 단계를 건너뛴다(무관한 자료를 억지로 보고서용 자료처럼 구조화하지 않기 위함).
+
+**신규 API** (`/documents`, `apps/api/app/api/documents.py`):
+- `POST /documents/{id}/process` — 파이프라인 전체 실행(관리자/승인자/검토자 권한)
+- `GET /documents/{id}/analysis` — 분류+전문상태(본문 제외)+가치판정(시의성 포함)+구조화+AI호출이력 통합 조회
+- `GET /documents/{id}/full-text` — 원문 전문 본문 조회(별도 엔드포인트로 분리해 목록 조회 응답이 무거워지지 않게 함)
+- `PATCH /documents/{id}/classification`, `PATCH /documents/{id}/value-assessment` — **연구원이 AI/규칙 기반 결과를 직접 수정**(사유 필수 입력 가능, 이력에 자동 기록)
+
+### 8-2. 실데이터 검증에서 발견·수정한 실제 결함 3건
+
+255건 전체 재처리 후 분야별 표본을 직접 원문과 대조하다가 발견한 것들이다 — 전부 발견 당일 수정하고 재처리까지 재실행해 반영했다.
+
+1. **차량안전 문서의 '0.5g 감속도' 단위가 '5G/6G' 통신기술로 오매칭됨.** NHTSA의 자율주행차 안전기준 문서(`New Car Assessment Program ... Advanced Driver Assistance Systems`)가 통신·네트워크(NET)로 분류됐는데, 실제로는 "5g"/"6g" 키워드가 "0.5g"/"0.6g"(제동 감속도 단위, g-force) 표기와 정규식 단어경계에서 충돌한 것이었다 — 해당 문서에만 "5g"가 65회, "6g"가 27회 "매칭"됐지만 전부 감속도였다. 수정: 모호한 단독 토큰 "5g"/"6g"를 "5g network"/"6g technology" 같은 구체적인 복합어로 교체.
+2. **W3C 기술표준(WCAG 등)이 '접근성'이라는 단어 하나만으로 디지털사회혁신(SOC, 사회정책 분야)으로 오분류됨.** W3C의 "WCAG 2.2/2.1 프랑스어 번역 공지", "EPUB Accessibility 1.2 Explainer" 2건이 실제로는 웹 기술표준 공지인데 SOC로 분류됐다. 수정: SOC의 "accessibility/접근성" 키워드 가중치를 낮추고, NET에 "wcag", "web content accessibility guidelines" 등 표준명 키워드를 추가해 기술표준 자체는 NET로, 장애인 접근성 "정책"은 SOC로 갈리게 함.
+3. **연방관보(Federal Register) PDF의 인쇄판 특성상, 핵심내용 추출이 엉뚱한 직전 문서의 꼬리 문단을 가져옴.** Federal Register는 하나의 문서 PDF도 인쇄판 지면을 그대로 자른 것이라, 문서 시작 지점에 직전의 무관한 다른 고시의 마지막 문단이 섞여 들어오는 경우가 있다(예: NTIA의 "광대역 프로그램 지속가능성 간담회" 문서 PDF 1페이지 앞부분에 수산자원관리청의 "참치 어획량" 고시 꼬리말이 포함됨). 분류 점수는 전체 텍스트를 다 보므로 영향이 적었지만, 구조화 단계의 "핵심내용"이 이 무관한 꼬리 문단을 그대로 가져가는 문제가 있었다. 수정: 연방관보 문서는 예외 없이 "SUMMARY:" 필드로 그 문서 자신의 요지를 명시하므로, 본문에서 "SUMMARY:"를 찾아 그 뒤부터를 핵심내용으로 추출하도록 변경(`structured_extract.py::_first_paragraphs`). 수정 후 실제로 재확인: 위 NTIA 문서의 `key_content`가 올바르게 "NTIA의 OICG가 BEAD/디지털형평성 등 보조금 프로그램을 운영하며..."로 바뀜.
+
+이 3건 모두 `apps/api/tests/test_classification.py`·`test_structured_extract.py`에 재발 방지 회귀 테스트로 추가했다.
+
+### 8-3. 실데이터 재처리 결과 (255건 전체, 2026-10-22)
+
+| 항목 | 결과 |
+|---|---|
+| 처리 대상 | 255건(DUPLICATE 제외, 기존 문서 그대로 — 삭제 없음) |
+| 처리 성공 | 255건 / 실패 0건 |
+| 원문 전문 추출 성공 | 215건(HTML 25건 + PDF 190건), 평균 73,855자, 최대 1,443,958자(arXiv 388p 논문) |
+| 전문 추출 시도 안 함(robots.txt 차단) | 40건 — 전부 NIST News(nist.gov가 `/news-events/` 경로를 robots.txt로 크롤링 금지, 직접 확인함) → 요약만으로 분류·판정 진행 |
+| 분류: 9대 분야 매칭 | 161건 |
+| 분류: 관련성낮음/분류보류 | 94건 — 억지로 9대 분야에 끼워 넣지 않음 |
+| 출처 고정분야와 다르게 재분류된 문서 | 35건 — Phase 2-1의 "출처=문서 분야" 가정이 실제로 틀렸음을 보여줌 |
+| 가치판정: 우선검토 | 21건 |
+| 가치판정: 일반검토 | 134건 |
+| 가치판정: 관련성낮음 | 97건 |
+| 가치판정: 추가확인필요 | 3건 |
+
+**분야별 매칭 건수**: AI 65 · SW 20 · CONTENT 20 · SEMI 18 · BCAST 16 · NET 13 · SEC 8 · SOC 1 · **CONV 0**.
+
+**CONV(ICT융합기술) 분야는 이번 수집분에서 미충족으로 보고한다.** 유일한 출처인 OSTP Federal Register 피드의 실제 문서들(기후연구계획 공람, 나노기술 이니셔티브 회의공고, 성과평가위원회 명단 등)을 직접 대조해 보니 스마트시티/스마트제조/탄소중립 등 CONV의 정의(포함주제)와 실질적으로 맞는 문서가 하나도 없었다 — 분류 보류로 정직하게 남겨 두었고, 무관한 자료를 억지로 CONV에 끼워 넣지 않았다. CONV를 실제로 채우려면 스마트시티/탄소중립을 직접 다루는 새 출처(예: DOE 스마트그리드, EPA 탄소중립 정책 피드)가 추가로 필요하다 — 후속 과제로 남긴다.
+
+### 8-4. 분야별 표본검증(자동판정 vs 원문 대조, 일부 발췌)
+
+| 분야 | 문서(발췌) | 자동판정 | 원문 대조 결과 |
+|---|---|---|---|
+| 인공지능·데이터 | arXiv "Physical AI: Concepts, Techniques, and Challenges" | ai(신뢰도 0.99) | 적절 — 실제 물리 AI 서베이 논문, 키워드도 본문과 일치 |
+| 통신·네트워크 | W3C "Group Note: WCAG Evaluation Methodology 2.0" | net(0.78) | 적절(수정 후) — W3C 웹 기술표준 공지, 수정 전엔 SOC로 오분류됐었음(8-2 참고) |
+| 방송·전파·위성 | FCC "Unleashing Unlicensed Spectrum for Direct-to-Device" | bcast(0.99) | 적절 — 위성-단말 직접통신용 비면허 주파수 개방 규칙, 15페이지 전문 확보 |
+| SW·자율주행 | BIS "Securing the ICT and Services Supply Chain: Connected Vehicles" | sw(0.99) | 적절 — 출처는 반도체(semi) 고정분야였으나 실제 내용은 커넥티드카 SW/공급망 규제라 sw로 재분류됨(의도한 동작) |
+| 보안·블록체인 | Federal Register "RFI on Modernizing the National Vulnerability Database in the Age of AI" | sec(0.96) | 적절 — 출처는 AI 고정분야(NIST×AI 쿼리)였으나 실제 주제는 NVD(국가취약점데이터베이스) 운영 개선이라 sec로 재분류됨(의도한 동작) |
+| 콘텐츠·미디어 | US Copyright Office "Music Streaming Fraud" | content(0.99), 우선검토 | 적절 — 스트리밍 사기 관련 저작권청 공식 조사·권고 문서 |
+| 반도체·양자 | BIS "Additions and Modifications to the Entity List; Removals From the VEU Program" | semi(0.99) | 적절 — 반도체 수출통제 대상기관(Entity List) 조정 |
+| 디지털사회혁신 | NTIA "State Digital Equity Capacity Grant Program" | soc(0.69) | 적절 — 디지털 형평성 보조금 프로그램, SOC 정의(디지털 격차 해소)와 정확히 일치. 다만 이 분야는 이 1건이 유일한 매칭(위 8-3 참고) |
+| ICT 융합기술 | (매칭 없음) | — | 미충족 — 8-3 참고 |
+
+이 표에서 "적절"로 판단한 기준은 ① 문서 제목·전문 내용이 분야 정의(포함주제)와 실제로 맞는가, ② 신뢰도·매칭근거(판정근거 문장)가 실제 본문 내용과 일치하는가 두 가지를 직접 원문(또는 전문 추출 결과)과 대조해 확인한 것이다. 반도체·보안 분야 2건은 "출처의 고정 분야와 다른 분야로 재분류"된 사례를 일부러 골라, Phase 2-1의 핵심 결함이 실제로 고쳐졌음을 보였다.
+
+### 8-5. AI 연동 현황 — 실제로 호출했는가
+
+**아니다.** 이 작업 환경에는 `ANTHROPIC_API_KEY`/`OPENAI_API_KEY`가 설정돼 있지 않다(세션 자체의 `ANTHROPIC_BASE_URL`은 이 Claude Code 세션 전용 내부 설정이라 재사용하지 않았다 — 별도 외부 서비스에 무단 전용하지 않기 위함). 따라서 이번 255건은 전부 `method=rule_based`로 저장됐고, 분류·가치판정·구조화 응답 어디에도 "AI 분석 완료"라는 표시는 없다.
+
+대신 `ai_service.py`의 공급자 연동 코드(Anthropic/OpenAI HTTP 호출, JSON 파싱, 청크분할) 자체는 `tests/test_ai_service.py`로 키 없이도 기계적으로 검증했다(공급자 미설정 시 `None` 반환, 공급자 설정+키 있을 때 프로바이더 인스턴스 생성, 청크 분할 경계, JSON 추출 성공/실패 케이스). 운영 환경에서 `.env`에 `AI_PROVIDER=anthropic`과 `ANTHROPIC_API_KEY`만 넣으면 코드 변경 없이 실제 AI 분류·구조화가 즉시 켜지도록 설계했다(`.env.example` 참고).
+
+### 8-6. 개발·테스트 결과
+
+- **신규 파일**: 모델 5개, 서비스 7개, API 라우터 1개, 스키마 1개, 마이그레이션 1개, 운영스크립트 2개(`reprocess_documents.py`, `run_all_collections.py`)
+- **테스트**: 신규 35건 추가(분류 7건, 전문추출 7건, 가치판정 6건, AI서비스 7건, 구조화 2건, API 6건) — 기존 29건 포함 **전체 64/64 통과**
+- **기존 기능 회귀 없음**: `GET /sources/{id}/documents` 등 Phase 2-1 API 응답 형식 그대로 유지(회귀 테스트로 확인)
+- **미구현/미검증**: 실제 AI 모델 호출(키 미보유로 라이브 검증 불가, 메커니즘만 검증), 이슈 클러스터링(Phase 2-3), 연구원이 실제 웹사이트에서 이 분석 결과를 보는 화면(Next.js 미연동, Phase 2-4)
+- **다음 단계 필요사항**: CONV 분야 보강 출처 확보, AI 공급자 키 확보 시 실제 분류 품질 재검증, 분류 보류(94건) 중 실제로 9대 분야에 해당하지만 키워드가 부족해 놓친 건 없는지 추가 표본검증

@@ -17,8 +17,9 @@
 | 로컬 개발용 더미 계정 시드 | **구현·실행 완료** — 전부 가상 인물, 비밀번호는 실행마다 무작위 생성 |
 | Next.js 프런트(로그인 + 후보주제 목록/상세/의견작성) | **코드 작성 완료, 실행·빌드 미검증** — 이 작업 환경에 Node.js/npm이 설치되어 있지 않아 `npm install`/`npm run dev`를 돌려보지 못했다 |
 | Docker Compose(db+api+web) | **설정 파일 작성 완료, 미검증** — 이 작업 환경에 Docker가 설치되어 있지 않다 |
-| 다방식(RSS+API) 수집 엔진 — ICT 9대 분야 전체 | **구현·실행 완료 — 9대 분야 전부 최소 1곳(총 10개 출처)에서 실시간 수집 성공 확인**, 254건 실제 DB 저장·재수집 중복방지·404 오류분류까지 라이브 검증. 상세는 `docs/PLATFORM_PLAN.md` §7 참고 |
-| HTML 파싱 수집기, 분야별 2곳 이상 확보, 이슈 클러스터링(`issue_clusters`), 원문 전문 추출·AI 자동분류, 원고·발간 워크플로, 실제 메일 발송 | **미구현** (Phase 2 후속~3, `docs/PLATFORM_PLAN.md`의 로드맵 참고) |
+| 다방식(RSS+API) 수집 엔진 — ICT 9대 분야 전체 | **구현·실행 완료 — 9대 분야 전부 최소 1곳(총 10개 출처)에서 실시간 수집 성공 확인**, 255건 실제 DB 저장·재수집 중복방지·404 오류분류까지 라이브 검증. 상세는 `docs/PLATFORM_PLAN.md` §7 참고 |
+| 문서별 원문 전문 추출(HTML+PDF) + ICT 분야 자동분류(출처 고정분야와 분리) + 실무 활용가치 판정 + 핵심내용 구조화 + AI 연동(공급자 미설정 시 규칙기반 폴백) | **구현·실행 완료 — 기존 255건 전체 재처리, 전문추출 215건 성공, 35건이 출처 고정분야와 다르게 재분류됨(Phase 2-1 결함 수정 확인)**. 실데이터 검증 중 발견한 실제 결함 3건(단위 오매칭, 기술표준 오분류, PDF 핵심내용 추출 오류)도 전부 수정. AI는 키 미보유로 실호출 미검증(규칙 기반으로만 동작 확인). 상세는 `docs/PLATFORM_PLAN.md` §8 참고 |
+| HTML 파싱 수집기(Federal Register 외), 분야별 2곳 이상 확보, 이슈 클러스터링(`issue_clusters`), 실제 AI 모델 호출, 연구원이 분석 결과를 보는 웹 화면, 원고·발간 워크플로, 실제 메일 발송 | **미구현** (Phase 2 후속~3, `docs/PLATFORM_PLAN.md`의 로드맵 참고) |
 
 **직접 실행해서 확인해야 하는 것: Next.js 빌드/구동과 Docker Compose 전체 스택.** 아래 절차대로 진행하고, 안 되는 부분이 있으면 알려달라.
 
@@ -47,13 +48,23 @@ cd apps/api
 PYTHONPATH=. pytest -v
 ```
 
-마지막 실행 결과: **29 passed**. 테스트는 SQLite 인메모리 DB를 사용한다(운영은 Postgres). 수집 엔진 테스트는 네트워크 호출을 모킹해 로직(신규/중복/개정판/실패/반복실패시 needs_review)만 검증하고, 인증 보안 테스트는 쿠키·CSRF·계정잠금·비밀번호변경을 각각 확인한다. 실제 네트워크를 통한 라이브 검증 결과는 `docs/PLATFORM_PLAN.md` §7-2 참고.
+마지막 실행 결과: **64 passed**. 테스트는 SQLite 인메모리 DB를 사용한다(운영은 Postgres). 수집 엔진 테스트는 네트워크 호출을 모킹해 로직(신규/중복/개정판/실패/반복실패시 needs_review)만 검증하고, 인증 보안 테스트는 쿠키·CSRF·계정잠금·비밀번호변경을 각각 확인한다. Phase 2-2 분류·전문추출·가치판정·구조화·AI연동 테스트는 `tests/test_classification.py`, `test_extraction.py`, `test_value_assessment.py`, `test_structured_extract.py`, `test_ai_service.py`, `test_documents_api.py` 참고. 실제 네트워크를 통한 라이브 검증 결과는 `docs/PLATFORM_PLAN.md` §7-2, §8-3·8-4 참고.
 
 ### 출처 수집 실행
 
 ```bash
-python -m app.seed_sources   # ICT 9대 분야 검증된 공식 출처 10곳 등록(분야당 최소 1곳)
-# 이후 POST /sources/{id}/collect 호출(관리자/승인자/검토자 권한)
+python -m app.seed_sources         # ICT 9대 분야 검증된 공식 출처 10곳 등록(분야당 최소 1곳)
+python -m app.run_all_collections  # 등록된 모든 활성 출처에 대해 1회 수집 실행
+# 이후 POST /sources/{id}/collect 로 출처 1곳만 재수집(관리자/승인자/검토자 권한)
+```
+
+### 문서 분석(전문추출·분류·가치판정·구조화) 실행
+
+```bash
+python -m app.reprocess_documents             # 기존 수집 문서 전체에 Phase 2-2 파이프라인 적용
+python -m app.reprocess_documents --field ai  # 특정 분야(출처 기준)만 재처리
+# 이후 POST /documents/{id}/process 로 문서 1건만 재실행(관리자/승인자/검토자 권한)
+# 연구원 수정: PATCH /documents/{id}/classification, PATCH /documents/{id}/value-assessment
 ```
 
 ## 전체 스택 (Docker Compose) — 사용자 환경에서 처음 실행·검증 필요
