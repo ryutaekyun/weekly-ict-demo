@@ -1572,13 +1572,12 @@
     var tabs = document.getElementById(tabsId);
     var container = document.getElementById(containerId);
     if(!tabs || !container) return;
-    var items = container.querySelectorAll(itemSelector);
     tabs.querySelectorAll('.ftab').forEach(function(tab){
       tab.addEventListener('click', function(){
         tabs.querySelectorAll('.ftab').forEach(function(t){ t.classList.remove('active'); });
         tab.classList.add('active');
         var key = tab.getAttribute(attr);
-        items.forEach(function(r){
+        container.querySelectorAll(itemSelector).forEach(function(r){
           var match = key === 'all' || r.getAttribute(attr) === key;
           r.style.display = match ? '' : 'none';
         });
@@ -1594,9 +1593,10 @@
     var el = document.querySelector('.account .who .name');
     return el ? el.textContent.trim() : '담당자';
   }
-  function __bumpTabCount(el){
+  function __bumpTabCount(el, delta){
     if(!el) return;
-    el.innerHTML = el.innerHTML.replace(/\((\d+)\)\s*$/, function(_, n){ return '(' + (parseInt(n, 10) + 1) + ')'; });
+    delta = delta === undefined ? 1 : delta;
+    el.innerHTML = el.innerHTML.replace(/\((\d+)\)\s*$/, function(_, n){ return '(' + Math.max(0, parseInt(n, 10) + delta) + ')'; });
   }
   function __nowStamp(){
     var d = new Date();
@@ -1672,10 +1672,15 @@
     var tr = td.closest('tr');
     var text = editor.querySelector('textarea').value.trim();
     var pill = td.querySelector('.pill');
+    var prevStatus = tr.getAttribute('data-status');
     pill.className = 'pill pill-clickable ' + statusClass;
     pill.textContent = statusLabel;
     pill.setAttribute('onclick', 'window.__openApprovalEditor(this)');
     tr.setAttribute('data-status', statusClass);
+    if(prevStatus !== statusClass){
+      __bumpTabCount(document.querySelector('#statusTabs5 [data-status="' + prevStatus + '"]'), -1);
+      __bumpTabCount(document.querySelector('#statusTabs5 [data-status="' + statusClass + '"]'), 1);
+    }
     if(text){
       var commentCell = tr.children[4];
       var thread = commentCell.querySelector('.review-thread');
