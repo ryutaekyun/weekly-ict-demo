@@ -1,9 +1,18 @@
+import secrets
 from datetime import datetime, timedelta, timezone
 
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 
 from app.core.config import settings
+
+ACCESS_TOKEN_COOKIE = "access_token"
+CSRF_COOKIE = "csrf_token"
+CSRF_HEADER = "x-csrf-token"
+
+
+def generate_csrf_token() -> str:
+    return secrets.token_urlsafe(32)
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 

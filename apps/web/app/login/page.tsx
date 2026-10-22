@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { apiFetch, saveToken } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -16,11 +16,10 @@ export default function LoginPage() {
     setError(null);
     setLoading(true);
     try {
-      const res = await apiFetch<{ access_token: string }>("/auth/login", {
+      await apiFetch("/auth/login", {
         method: "POST",
         body: JSON.stringify({ email, password }),
       });
-      saveToken(res.access_token);
       router.push("/candidates");
     } catch (err) {
       setError(err instanceof Error ? err.message : "로그인에 실패했습니다");

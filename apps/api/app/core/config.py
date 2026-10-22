@@ -10,5 +10,12 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 60 * 12
     cors_origins: list[str] = ["http://localhost:3000"]
 
+    # true(운영/HTTPS)로 설정하면 쿠키에 Secure 속성이 붙어 HTTPS에서만 전송된다.
+    # 로컬 http 개발 환경에서는 false로 둬야 쿠키가 브라우저에 저장된다.
+    cookie_secure: bool = False
+
+    max_failed_login_attempts: int = 5
+    login_lockout_minutes: int = 15
+
 
 settings = Settings()

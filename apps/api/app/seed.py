@@ -1,51 +1,67 @@
-"""개발용 초기 사용자 시드 스크립트.
+"""로컬 개발·테스트 전용 더미 사용자 시드 스크립트.
 
 실행: python -m app.seed
-실제 제안서 인력투입계획표(docs/PLATFORM_PLAN.md 참고)의 11명 역할을 반영한다.
-비밀번호는 전부 임시값이며 최초 로그인 후 반드시 변경해야 한다 — 운영 배포 전 교체 필수.
+
+중요(보안): 여기 등록되는 계정은 전부 가상의 인물·이메일이며 실제 참여 연구원과
+아무 관련이 없다. 비밀번호는 매 실행마다 새로 무작위 생성되어 콘솔에 한 번만
+출력되고 코드 어디에도 저장되지 않는다.
+
+운영 환경 계정은 이 스크립트로 만들지 않는다 — `python -m app.create_admin`으로
+관리자가 직접, 1회성 비밀번호를 받아 생성한다(README 참고).
 """
+
+import secrets
 
 from app.core.db import Base, SessionLocal, engine
 from app.core.security import hash_password
 from app.models.enums import UserRole
 from app.models.user import User
 
-SEED_USERS = [
-    ("heo.seonyang@tenopa.co.kr", "허선양", UserRole.ADMIN, "수석연구원"),
-    ("ha.miham@tenopa.co.kr", "하미함", UserRole.APPROVER, "책임연구원"),
-    ("lee.donghyuk@tenopa.co.kr", "이동혁", UserRole.REVIEWER, "책임연구원"),
-    ("ryu.taekyun@tenopa.co.kr", "류태균", UserRole.REVIEWER, "책임연구원"),
-    ("park.seonjeong@tenopa.co.kr", "박선정", UserRole.REVIEWER, "선임연구원"),
-    ("noh.uijeong@tenopa.co.kr", "노의정", UserRole.RESEARCHER, "전임연구원"),
-    ("lee.jeongcheol@tenopa.co.kr", "이정철", UserRole.RESEARCHER, "전임연구원"),
-    ("kim.dabi@tenopa.co.kr", "김다비", UserRole.RESEARCHER, "전임연구원"),
-    ("park.hayoon@tenopa.co.kr", "박하윤", UserRole.RESEARCHER, "전임연구원"),
-    ("lee.jeongmin@tenopa.co.kr", "이정민", UserRole.RESEARCHER, "전임연구원"),
-    ("jeon.seyoung@tenopa.co.kr", "전세영", UserRole.RESEARCHER, "전임연구원"),
+# (이메일, 표시 이름, 역할, 직함) — 전부 가상의 더미 데이터. example.com은 IANA가
+# 문서/예시 용도로 예약한 도메인이라 실제 수신자가 존재할 수 없다.
+DUMMY_USERS = [
+    ("dev-admin@example.com", "더미 관리자", UserRole.ADMIN, "플랫폼 관리자"),
+    ("dev-approver@example.com", "더미 승인자", UserRole.APPROVER, "최종 승인 테스트 계정"),
+    ("dev-reviewer-1@example.com", "더미 검토자1", UserRole.REVIEWER, "검토 테스트 계정"),
+    ("dev-reviewer-2@example.com", "더미 검토자2", UserRole.REVIEWER, "검토 테스트 계정"),
+    ("dev-reviewer-3@example.com", "더미 검토자3", UserRole.REVIEWER, "검토 테스트 계정"),
+    ("dev-researcher-1@example.com", "더미 연구원1", UserRole.RESEARCHER, "연구원 테스트 계정"),
+    ("dev-researcher-2@example.com", "더미 연구원2", UserRole.RESEARCHER, "연구원 테스트 계정"),
+    ("dev-researcher-3@example.com", "더미 연구원3", UserRole.RESEARCHER, "연구원 테스트 계정"),
+    ("dev-researcher-4@example.com", "더미 연구원4", UserRole.RESEARCHER, "연구원 테스트 계정"),
+    ("dev-researcher-5@example.com", "더미 연구원5", UserRole.RESEARCHER, "연구원 테스트 계정"),
+    ("dev-researcher-6@example.com", "더미 연구원6", UserRole.RESEARCHER, "연구원 테스트 계정"),
 ]
-
-DEFAULT_PASSWORD = "ChangeMe!2026"
 
 
 def seed() -> None:
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     try:
-        for email, name, role, job_title in SEED_USERS:
-            exists = db.query(User).filter(User.email == email).first()
-            if exists:
+        created = []
+        for email, name, role, job_title in DUMMY_USERS:
+            if db.query(User).filter(User.email == email).first():
                 continue
+            password = secrets.token_urlsafe(12)
             db.add(
                 User(
                     email=email,
-                    password_hash=hash_password(DEFAULT_PASSWORD),
+                    password_hash=hash_password(password),
                     display_name=name,
                     role=role,
                     job_title=job_title,
                 )
             )
+            created.append((email, password))
         db.commit()
-        print(f"시드 완료 — 임시 비밀번호: {DEFAULT_PASSWORD} (최초 로그인 후 반드시 변경할 것)")
+
+        if not created:
+            print("이미 모든 더미 계정이 존재합니다 — 새로 만든 계정이 없습니다.")
+            return
+
+        print("더미 개발 계정이 생성되었습니다. 비밀번호는 이번 실행에서만 출력되며 저장되지 않습니다:")
+        for email, password in created:
+            print(f"  {email}  /  {password}")
     finally:
         db.close()
 

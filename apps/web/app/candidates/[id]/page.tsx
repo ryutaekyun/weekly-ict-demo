@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { apiFetch, getToken, type CandidateDetail } from "@/lib/api";
+import { apiFetch, UnauthorizedError, type CandidateDetail } from "@/lib/api";
 
 export default function CandidateDetailPage() {
   const params = useParams<{ id: string }>();
@@ -15,14 +15,16 @@ export default function CandidateDetailPage() {
   function load() {
     apiFetch<CandidateDetail>(`/candidates/${params.id}`)
       .then(setCandidate)
-      .catch((err) => setError(err instanceof Error ? err.message : "불러오기 실패"));
+      .catch((err) => {
+        if (err instanceof UnauthorizedError) {
+          router.push("/login");
+          return;
+        }
+        setError(err instanceof Error ? err.message : "불러오기 실패");
+      });
   }
 
   useEffect(() => {
-    if (!getToken()) {
-      router.push("/login");
-      return;
-    }
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.id, router]);

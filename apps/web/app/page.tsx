@@ -2,12 +2,14 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { getToken } from "@/lib/api";
+import { apiFetch, type CurrentUser } from "@/lib/api";
 
 export default function HomePage() {
   const router = useRouter();
   useEffect(() => {
-    router.replace(getToken() ? "/candidates" : "/login");
+    apiFetch<CurrentUser>("/auth/me")
+      .then(() => router.replace("/candidates"))
+      .catch(() => router.replace("/login"));
   }, [router]);
   return null;
 }

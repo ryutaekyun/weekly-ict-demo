@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { apiFetch, getToken, type Candidate } from "@/lib/api";
+import { apiFetch, logout, UnauthorizedError, type Candidate } from "@/lib/api";
 
 const FIELD_LABELS: Record<string, string> = {
   soc: "디지털사회혁신",
@@ -32,19 +32,31 @@ export default function CandidatesPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!getToken()) {
-      router.push("/login");
-      return;
-    }
     apiFetch<Candidate[]>("/candidates")
       .then(setCandidates)
-      .catch((err) => setError(err instanceof Error ? err.message : "불러오기 실패"))
+      .catch((err) => {
+        if (err instanceof UnauthorizedError) {
+          router.push("/login");
+          return;
+        }
+        setError(err instanceof Error ? err.message : "불러오기 실패");
+      })
       .finally(() => setLoading(false));
   }, [router]);
 
+  async function handleLogout() {
+    await logout();
+    router.push("/login");
+  }
+
   return (
     <div style={{ maxWidth: 960, margin: "0 auto", padding: 32 }}>
-      <h1 style={{ fontSize: 20, fontWeight: 700 }}>주간 후보주제 목록</h1>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+        <h1 style={{ fontSize: 20, fontWeight: 700 }}>주간 후보주제 목록</h1>
+        <button className="tbtn" onClick={handleLogout}>
+          로그아웃
+        </button>
+      </div>
       <p style={{ color: "var(--ink-muted)", fontSize: 13.5 }}>
         실제 PostgreSQL에 저장된 후보주제 — 새로고침해도 사라지지 않습니다.
       </p>

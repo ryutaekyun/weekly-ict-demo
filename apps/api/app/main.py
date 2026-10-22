@@ -3,9 +3,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import auth, candidates, sources
 from app.core.config import settings
+from app.core.csrf import CSRFMiddleware
 
 app = FastAPI(title="TNP AI Platform API", version="0.1.0")
 
+app.add_middleware(CSRFMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,

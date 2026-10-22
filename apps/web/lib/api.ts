@@ -1,32 +1,43 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-const TOKEN_KEY = "tnp_access_token";
 
-export function saveToken(token: string) {
-  if (typeof window !== "undefined") localStorage.setItem(TOKEN_KEY, token);
+const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+export class UnauthorizedError extends Error {}
+
+function readCookie(name: string): string | null {
+  if (typeof document === "undefined") return null;
+  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : null;
 }
 
-export function getToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem(TOKEN_KEY);
-}
-
-export function clearToken() {
-  if (typeof window !== "undefined") localStorage.removeItem(TOKEN_KEY);
-}
-
+/**
+ * 인증은 전부 httpOnly 쿠키로 처리한다 — 토큰을 JS(localStorage 등)에 저장하지 않는다.
+ * 쿠키는 fetch의 credentials:"include"로 자동 전송되고, 상태를 바꾸는 요청에는
+ * 쿠키 기반 CSRF 방어를 위해 csrf_token 쿠키 값을 x-csrf-token 헤더로 함께 보낸다.
+ */
 export async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const token = getToken();
   const headers = new Headers(options.headers);
   headers.set("Content-Type", "application/json");
-  if (token) headers.set("Authorization", `Bearer ${token}`);
 
-  const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  const method = (options.method ?? "GET").toUpperCase();
+  if (UNSAFE_METHODS.has(method)) {
+    const csrfToken = readCookie("csrf_token");
+    if (csrfToken) headers.set("x-csrf-token", csrfToken);
+  }
+
+  const res = await fetch(`${API_BASE}${path}`, { ...options, headers, credentials: "include" });
+
+  if (res.status === 401) throw new UnauthorizedError("로그인이 필요합니다");
   if (!res.ok) {
     const body = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(body.detail ?? `요청 실패 (${res.status})`);
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
+}
+
+export async function logout(): Promise<void> {
+  await fetch(`${API_BASE}/auth/logout`, { method: "POST", credentials: "include" });
 }
 
 export type CandidateStatus = "rec" | "review" | "hold" | "final" | "rejected";
