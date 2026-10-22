@@ -112,15 +112,19 @@ def upgrade() -> None:
     sa.Column('collected_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('raw_text', sa.Text(), nullable=True),
     sa.Column('content_hash', sa.String(length=64), nullable=False),
-    sa.Column('status', sa.Enum('COLLECTED', 'PARSED', 'DUPLICATE', 'FAILED', name='sourcedocumentstatus', native_enum=False), nullable=False),
+    sa.Column('status', sa.Enum('COLLECTED', 'PARSED', 'DUPLICATE', 'UPDATED', 'FAILED', name='sourcedocumentstatus', native_enum=False), nullable=False),
     sa.Column('duplicate_of_id', sa.Uuid(), nullable=True),
     sa.Column('id', sa.Uuid(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.ForeignKeyConstraint(['collection_run_id'], ['collection_runs.id'], ),
     sa.ForeignKeyConstraint(['duplicate_of_id'], ['source_documents.id'], ),
     sa.ForeignKeyConstraint(['source_id'], ['sources.id'], ),
-    sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('origin_url')
+    sa.PrimaryKeyConstraint('id')
+    # NOTE(Phase 2-1): origin_url에 걸려 있던 UniqueConstraint를 제거했다 — 동일 URL의 원문이
+    # 수정되어 재수집되면(previous_version_id로 연결된) 새 버전 행을 추가로 쌓기 위함이다.
+    # 이 마이그레이션이 실제 운영 DB에 적용된 적이 없어(이 환경엔 Postgres 자체가 없음) 이미
+    # 생성된 리비전 파일을 직접 수정했다 — 적용 이력이 있는 마이그레이션이었다면 새 리비전에서
+    # batch_alter_table로 제약을 drop해야 한다.
     )
     op.create_index(op.f('ix_source_documents_content_hash'), 'source_documents', ['content_hash'], unique=False)
     op.create_table('issue_clusters',

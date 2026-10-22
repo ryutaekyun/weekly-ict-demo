@@ -45,8 +45,38 @@ class CollectionRunStatus(str, enum.Enum):
 class SourceDocumentStatus(str, enum.Enum):
     COLLECTED = "collected"
     PARSED = "parsed"
-    DUPLICATE = "duplicate"
+    DUPLICATE = "duplicate"  # 다른 문서와 내용(content_hash)이 동일한 사본
+    UPDATED = "updated"  # 동일 origin_url의 원문이 수정되어 새 버전으로 기록됨(previous_version_id 참조)
     FAILED = "failed"
+
+
+class DocumentType(str, enum.Enum):
+    """ICT 기술동향 조사에 필요한 자료 유형 — 공식 발표문과 언론 보도, 프리프린트와 동료심사 완료
+    연구를 구분하기 위해 둔다."""
+
+    POLICY = "policy"  # 정부 정책
+    LAW = "law"  # 법령·규제·시행지침
+    PAPER = "paper"  # 학술논문(동료심사 여부는 is_peer_reviewed로 별도 표기)
+    REPORT = "report"  # 연구기관 기술보고서
+    STANDARD = "standard"  # 기술표준·표준화 동향
+    STATISTICS = "statistics"  # 국제기구 통계·분석자료
+    PRESS_RELEASE = "press_release"  # 기관 공식 보도자료
+    TECH_ANNOUNCEMENT = "tech_announcement"  # 기업 공식 기술발표
+    NEWS = "news"  # 언론 보도(1차 출처 아님 — requires_primary_source_check로 표기)
+    OTHER = "other"
+
+
+class CollectionErrorType(str, enum.Enum):
+    """오류 상황을 구분해 기록한다 — "접속은 됐지만 콘텐츠가 없음"과 "접속 자체가 실패"를 섞지 않는다."""
+
+    HTTP_4XX = "http_4xx"
+    HTTP_429 = "http_429"
+    HTTP_5XX = "http_5xx"
+    TIMEOUT = "timeout"
+    CONNECTION_ERROR = "connection_error"
+    PARSE_ERROR = "parse_error"
+    ROBOTS_DISALLOWED = "robots_disallowed"
+    NO_RELEVANT_CONTENT = "no_relevant_content"  # 접속은 성공했으나 해당 분야 실제 콘텐츠를 찾지 못함
 
 
 class VerificationStatus(str, enum.Enum):

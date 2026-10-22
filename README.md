@@ -11,14 +11,14 @@
 
 | 항목 | 상태 |
 |---|---|
-| FastAPI 백엔드(인증 + 후보주제 CRUD + 검토/승인) | **구현·실행·테스트 완료** — `pytest` 23개 전부 통과, 실제 서버 기동 후 curl로 end-to-end 확인함 |
+| FastAPI 백엔드(인증 + 후보주제 CRUD + 검토/승인) | **구현·실행·테스트 완료** — `pytest` 29개 전부 통과, 실제 서버 기동 후 curl로 end-to-end 확인함 |
 | 인증 보안(httpOnly 쿠키, CSRF, 로그인 잠금, 비밀번호 변경) | **구현·테스트 완료** — 쿠키/CSRF/계정잠금/비밀번호변경 각각 자동 테스트로 확인(아래 "보안 관련 알려진 사항" 참고) |
-| PostgreSQL 스키마(14개 테이블 + 로그인 잠금 컬럼) + Alembic 마이그레이션 2건 | **구현 완료** — SQLite로 실제 `alembic upgrade head` 성공 확인(Postgres 자체는 이 작업 환경에 설치되어 있지 않아 미설치 상태로 검증) |
+| PostgreSQL 스키마(14개 테이블 + 로그인 잠금·출처/문서 메타데이터 확장) + Alembic 마이그레이션 3건 | **구현 완료** — SQLite로 실제 `alembic upgrade head` 성공 확인(Postgres 자체는 이 작업 환경에 설치되어 있지 않아 미설치 상태로 검증) |
 | 로컬 개발용 더미 계정 시드 | **구현·실행 완료** — 전부 가상 인물, 비밀번호는 실행마다 무작위 생성 |
 | Next.js 프런트(로그인 + 후보주제 목록/상세/의견작성) | **코드 작성 완료, 실행·빌드 미검증** — 이 작업 환경에 Node.js/npm이 설치되어 있지 않아 `npm install`/`npm run dev`를 돌려보지 못했다 |
 | Docker Compose(db+api+web) | **설정 파일 작성 완료, 미검증** — 이 작업 환경에 Docker가 설치되어 있지 않다 |
-| RSS 수집 엔진(출처 등록/실행/이력) + 중복감지 | **구현·실행 완료 — 실제 출처 3곳(arXiv cs.AI, NIST News, W3C News)에서 실시간 수집 성공 확인**. 나머지 6개 분야는 검증된 출처를 아직 못 찾아 비워둠 |
-| 분야 간 중복 클러스터링(`issue_clusters`), 원고·발간 워크플로, 실제 메일 발송 | **미구현** (Phase 2 후속~3, `docs/PLATFORM_PLAN.md`의 로드맵 참고) |
+| 다방식(RSS+API) 수집 엔진 — ICT 9대 분야 전체 | **구현·실행 완료 — 9대 분야 전부 최소 1곳(총 10개 출처)에서 실시간 수집 성공 확인**, 254건 실제 DB 저장·재수집 중복방지·404 오류분류까지 라이브 검증. 상세는 `docs/PLATFORM_PLAN.md` §7 참고 |
+| HTML 파싱 수집기, 분야별 2곳 이상 확보, 이슈 클러스터링(`issue_clusters`), 원문 전문 추출·AI 자동분류, 원고·발간 워크플로, 실제 메일 발송 | **미구현** (Phase 2 후속~3, `docs/PLATFORM_PLAN.md`의 로드맵 참고) |
 
 **직접 실행해서 확인해야 하는 것: Next.js 빌드/구동과 Docker Compose 전체 스택.** 아래 절차대로 진행하고, 안 되는 부분이 있으면 알려달라.
 
@@ -47,12 +47,12 @@ cd apps/api
 PYTHONPATH=. pytest -v
 ```
 
-마지막 실행 결과: **23 passed**. 테스트는 SQLite 인메모리 DB를 사용한다(운영은 Postgres). 수집 엔진 테스트는 `fetch_raw_feed`를 모킹해 실제 네트워크 없이 로직(신규/중복/실패)만 검증하고, 인증 보안 테스트는 쿠키·CSRF·계정잠금·비밀번호변경을 각각 확인한다.
+마지막 실행 결과: **29 passed**. 테스트는 SQLite 인메모리 DB를 사용한다(운영은 Postgres). 수집 엔진 테스트는 네트워크 호출을 모킹해 로직(신규/중복/개정판/실패/반복실패시 needs_review)만 검증하고, 인증 보안 테스트는 쿠키·CSRF·계정잠금·비밀번호변경을 각각 확인한다. 실제 네트워크를 통한 라이브 검증 결과는 `docs/PLATFORM_PLAN.md` §7-2 참고.
 
 ### 출처 수집 실행
 
 ```bash
-python -m app.seed_sources   # 검증된 공식 출처 3곳 등록
+python -m app.seed_sources   # ICT 9대 분야 검증된 공식 출처 10곳 등록(분야당 최소 1곳)
 # 이후 POST /sources/{id}/collect 호출(관리자/승인자/검토자 권한)
 ```
 

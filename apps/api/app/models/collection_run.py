@@ -6,7 +6,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
 from app.models.base import TimestampMixin, UUIDPKMixin
-from app.models.enums import CollectionRunStatus
+from app.models.enums import CollectionErrorType, CollectionRunStatus
 
 
 class CollectionRun(Base, UUIDPKMixin, TimestampMixin):
@@ -21,5 +21,9 @@ class CollectionRun(Base, UUIDPKMixin, TimestampMixin):
     items_found: Mapped[int] = mapped_column(Integer, default=0)
     items_new: Mapped[int] = mapped_column(Integer, default=0)
     items_duplicate: Mapped[int] = mapped_column(Integer, default=0)
+    items_updated: Mapped[int] = mapped_column(Integer, default=0)  # 기존 문서의 내용이 바뀌어 새 버전으로 기록된 건수
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_type: Mapped[CollectionErrorType | None] = mapped_column(
+        Enum(CollectionErrorType, native_enum=False), nullable=True
+    )
     retry_count: Mapped[int] = mapped_column(Integer, default=0)

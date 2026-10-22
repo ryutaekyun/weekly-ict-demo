@@ -1,7 +1,7 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.audit import log_action
@@ -12,7 +12,14 @@ from app.models.enums import FieldCode, UserRole
 from app.models.source import Source
 from app.models.source_document import SourceDocument
 from app.models.user import User
-from app.schemas.source import CollectionRunOut, SourceCreate, SourceDocumentOut, SourceOut
+from app.schemas.source import (
+    CollectionRunOut,
+    SourceCreate,
+    SourceDocumentOut,
+    SourceOut,
+    SourceStatsOut,
+    SourceUpdate,
+)
 from app.services.collection import run_collection
 
 router = APIRouter(prefix="/sources", tags=["sources"])
@@ -21,12 +28,15 @@ router = APIRouter(prefix="/sources", tags=["sources"])
 @router.get("", response_model=list[SourceOut])
 def list_sources(
     field_code: FieldCode | None = None,
+    needs_review: bool | None = None,
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
     stmt = select(Source)
     if field_code is not None:
         stmt = stmt.where(Source.field_code == field_code)
+    if needs_review is not None:
+        stmt = stmt.where(Source.needs_review == needs_review)
     return db.scalars(stmt.order_by(Source.field_code)).all()
 
 
@@ -59,6 +69,52 @@ def _get_source_or_404(db: Session, source_id: uuid.UUID) -> Source:
     return source
 
 
+@router.get("/{source_id}", response_model=SourceStatsOut)
+def get_source(
+    source_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    source = _get_source_or_404(db, source_id)
+    document_count = db.scalar(
+        select(func.count()).select_from(SourceDocument).where(SourceDocument.source_id == source_id)
+    )
+    last_run = db.scalar(
+        select(CollectionRun)
+        .where(CollectionRun.source_id == source_id)
+        .order_by(CollectionRun.started_at.desc())
+        .limit(1)
+    )
+    data = SourceOut.model_validate(source).model_dump()
+    data["document_count"] = document_count or 0
+    data["last_run_status"] = last_run.status if last_run else None
+    return SourceStatsOut(**data)
+
+
+@router.patch("/{source_id}", response_model=SourceOut)
+def update_source(
+    source_id: uuid.UUID,
+    payload: SourceUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.ADMIN)),
+):
+    source = _get_source_or_404(db, source_id)
+    data = payload.model_dump(exclude_unset=True)
+    for field, value in data.items():
+        setattr(source, field, value)
+    log_action(
+        db,
+        actor_user_id=current_user.id,
+        action="source.update",
+        entity_type="source",
+        entity_id=source.id,
+        detail=data,
+    )
+    db.commit()
+    db.refresh(source)
+    return source
+
+
 @router.post("/{source_id}/collect", response_model=CollectionRunOut)
 def trigger_collection(
     source_id: uuid.UUID,
@@ -76,7 +132,12 @@ def trigger_collection(
         action="source.collect",
         entity_type="source",
         entity_id=source.id,
-        detail={"status": run.status.value, "items_new": run.items_new, "items_duplicate": run.items_duplicate},
+        detail={
+            "status": run.status.value,
+            "items_new": run.items_new,
+            "items_duplicate": run.items_duplicate,
+            "items_updated": run.items_updated,
+        },
     )
     db.commit()
     return run
