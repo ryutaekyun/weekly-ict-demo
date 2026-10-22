@@ -26,6 +26,9 @@
 
 
 
+
+
+
   /* 레이아웃: 좌측 고정 사이드바(항상 다크) + 상단바(검색/알림/계정) + 본문(①후보목록 ②상세 ③카드보기 ④통계 ⑤검토관리 ⑥최종선정, 상단 스위처로 전환) */
   :root{
     --bg:#F2F4F7;
@@ -406,8 +409,12 @@
   .review-comment.approval .rc-author{color:var(--navy);}
   .review-comment .rc-time{color:var(--ink-muted);font-size:11px;}
   .review-comment .rc-text{margin-top:3px;color:var(--ink);}
-  .comment-editor,.approval-editor{margin-top:7px;}
-  .comment-editor textarea,.approval-editor textarea{width:100%;box-sizing:border-box;}
+  .comment-editor{margin-top:7px;}
+  .comment-editor textarea{width:100%;box-sizing:border-box;}
+  td.status-cell{position:relative;}
+  .approval-editor{position:absolute;top:100%;right:0;z-index:20;width:240px;margin-top:6px;background:var(--panel);border:1px solid var(--border);border-radius:9px;padding:10px;box-shadow:0 10px 28px rgba(10,20,40,.18);white-space:normal;}
+  .approval-editor textarea{width:100%;box-sizing:border-box;}
+  .approval-editor .ae-actions{display:flex;gap:6px;margin-top:7px;flex-wrap:wrap;}
 
   .muted{color:var(--ink-muted);}
 
@@ -1608,6 +1615,7 @@
       thread.innerHTML = '<div class="review-comment"><span class="rc-author">' + reviewer + '</span><div class="rc-text"></div></div>';
       thread.querySelector('.rc-text').textContent = existing;
     }
+    statusCell.classList.add('status-cell');
     var pill = statusCell.querySelector('.pill');
     if(pill){ pill.classList.add('pill-clickable'); pill.title = '클릭하여 최종 승인 코멘트 작성'; pill.setAttribute('onclick', 'window.__openApprovalEditor(this)'); }
   }
@@ -1648,8 +1656,9 @@
     if(td.querySelector('.approval-editor')) return;
     var box = document.createElement('div');
     box.className = 'approval-editor';
-    box.innerHTML = '<textarea class="form-textarea" style="min-height:48px;font-size:12.5px;" placeholder="최종 승인 코멘트를 입력하세요"></textarea>' +
-      '<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;">' +
+    box.innerHTML = '<div style="font-size:11.5px;font-weight:700;color:var(--ink-muted);margin-bottom:6px;">최종 승인 코멘트</div>' +
+      '<textarea class="form-textarea" style="min-height:52px;font-size:12.5px;" placeholder="최종 승인 코멘트를 입력하세요"></textarea>' +
+      '<div class="ae-actions">' +
       '<button class="tbtn" style="font-size:11px;padding:4px 9px;background:var(--ok-soft);color:var(--ok);" onclick="window.__submitApproval(this,\'final\',\'확정\')">확정</button>' +
       '<button class="tbtn" style="font-size:11px;padding:4px 9px;background:var(--warn-soft);color:var(--warn);" onclick="window.__submitApproval(this,\'hold\',\'보류\')">보류</button>' +
       '<button class="tbtn" style="font-size:11px;padding:4px 9px;background:var(--ok-soft);color:var(--ok);" onclick="window.__submitApproval(this,\'rec\',\'추천\')">추천 유지</button>' +
