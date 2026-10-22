@@ -1,0 +1,16 @@
+# Python backend
+apps/api/.venv/
+apps/api/__pycache__/
+apps/api/**/__pycache__/
+apps/api/.pytest_cache/
+apps/api/dev.db
+apps/api/.env
+
+# Node frontend
+apps/web/node_modules/
+apps/web/.next/
+apps/web/.env.local
+
+# OS
+.DS_Store
+Thumbs.db
