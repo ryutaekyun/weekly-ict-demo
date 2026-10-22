@@ -17,6 +17,12 @@ from app.models.document_full_text import DocumentFullText
 from app.models.document_value_assessment import DocumentValueAssessment
 from app.models.document_structured_extract import DocumentStructuredExtract
 from app.models.ai_analysis_run import AIAnalysisRun
+from app.models.issue_cluster_document import IssueClusterDocument
+from app.models.issue_cluster_history import IssueClusterMembershipHistory
+from app.models.issue_timeline_event import IssueTimelineEvent
+from app.models.issue_analysis import IssueAnalysis
+from app.models.issue_dispute_point import IssueDisputePoint
+from app.models.candidate_scoring import CandidateScoringConfig, CandidateRecommendationScore
 
 __all__ = [
     "User",
@@ -39,4 +45,11 @@ __all__ = [
     "DocumentValueAssessment",
     "DocumentStructuredExtract",
     "AIAnalysisRun",
+    "IssueClusterDocument",
+    "IssueClusterMembershipHistory",
+    "IssueTimelineEvent",
+    "IssueAnalysis",
+    "IssueDisputePoint",
+    "CandidateScoringConfig",
+    "CandidateRecommendationScore",
 ]

@@ -155,3 +155,40 @@ class UsageValueRating(str, enum.Enum):
     GENERAL = "general"  # 일반 검토
     LOW_RELEVANCE = "low_relevance"  # 관련성 낮음
     NEEDS_MORE_INFO = "needs_more_info"  # 추가 확인 필요
+
+
+# ---------------------------------------------------------------------------
+# Phase 2-3 — 동일 이슈 통합·후속변화 추적·쟁점분석·후보주제 추천
+# ---------------------------------------------------------------------------
+
+
+class IssueMembershipType(str, enum.Enum):
+    PRIMARY = "primary"  # 클러스터의 최초/대표 문서
+    DUPLICATE_REPORT = "duplicate_report"  # 동일 사건을 다룬 서로 다른 출처의 보도
+    FOLLOW_UP = "follow_up"  # 후속 변화·조치를 다룬 문서
+
+
+class ClusterReviewStatus(str, enum.Enum):
+    CONFIRMED = "confirmed"  # 자동 통합 신뢰도 높음, 또는 연구원이 확인함
+    NEEDS_REVIEW = "needs_review"  # 통합 여부 불확실 — 연구원 검토 대기
+
+
+class TimelineEventType(str, enum.Enum):
+    NEW_ISSUE = "new_issue"  # 최초 등장한 신규 이슈
+    ADDITIONAL_ANNOUNCEMENT = "additional_announcement"  # 기존 이슈에 대한 추가 발표
+    SUBSTANTIVE_CHANGE = "substantive_change"  # 기존 정책·규제·기술 내용의 실질적 변경
+    FOLLOW_UP_ACTION = "follow_up_action"  # 후속 조치·시행·평가 결과
+    NO_SUBSTANTIVE_CHANGE = "no_substantive_change"  # 중요한 변화 없이 반복된 보도
+    INSUFFICIENT_COMPARISON_DATA = "insufficient_comparison_data"  # 비교 근거 부족 — 추측 금지
+
+
+class DisputeAnalysisStatus(str, enum.Enum):
+    NOT_ANALYZED = "not_analyzed"
+    NO_DISPUTES_CONFIRMED = "no_disputes_confirmed"  # 확인된 주요 의견 대립 없음
+    DISPUTES_FOUND = "disputes_found"
+
+
+class EvidenceMatchStatus(str, enum.Enum):
+    MATCHED = "matched"
+    MISMATCHED = "mismatched"  # 근거 불일치 — 검증 완료로 처리하지 않음
+    NOT_VERIFIED = "not_verified"

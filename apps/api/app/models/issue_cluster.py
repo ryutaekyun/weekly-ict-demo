@@ -1,12 +1,12 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, String
+from sqlalchemy import DateTime, Enum, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
 from app.models.base import TimestampMixin, UUIDPKMixin
-from app.models.enums import FieldCode
+from app.models.enums import ClassificationMethod, ClusterReviewStatus, FieldCode
 
 
 class IssueClusterStatus:
@@ -25,3 +25,13 @@ class IssueCluster(Base, UUIDPKMixin, TimestampMixin):
         ForeignKey("source_documents.id"), nullable=True
     )
     status: Mapped[str] = mapped_column(String(20), default=IssueClusterStatus.ACTIVE, nullable=False)
+
+    # Phase 2-3 추가 필드
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_activity_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    review_status: Mapped[ClusterReviewStatus] = mapped_column(
+        Enum(ClusterReviewStatus, native_enum=False), default=ClusterReviewStatus.NEEDS_REVIEW, nullable=False
+    )
+    created_by_method: Mapped[ClassificationMethod | None] = mapped_column(
+        Enum(ClassificationMethod, native_enum=False), nullable=True
+    )
