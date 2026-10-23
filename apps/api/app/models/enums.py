@@ -94,8 +94,14 @@ class PublicationType(str, enum.Enum):
 
 
 class ManuscriptStatus(str, enum.Enum):
+    """초안 작성 → 검토 요청 → 교차검토(→ 수정요청 → 재검토) → 내부 최종 확정의 실제 업무 흐름을 반영한다.
+    REVIEW는 기존 값과의 호환을 위해 남겨두되 Phase 3-1부터는 REVIEW_REQUESTED를 쓴다."""
+
     DRAFT = "draft"
-    REVIEW = "review"
+    REVIEW = "review"  # 레거시 — 신규 코드는 REVIEW_REQUESTED 사용
+    REVIEW_REQUESTED = "review_requested"
+    CHANGES_REQUESTED = "changes_requested"
+    APPROVED = "approved"
     FINAL = "final"
 
 
@@ -192,3 +198,35 @@ class EvidenceMatchStatus(str, enum.Enum):
     MATCHED = "matched"
     MISMATCHED = "mismatched"  # 근거 불일치 — 검증 완료로 처리하지 않음
     NOT_VERIFIED = "not_verified"
+
+
+# ---------------------------------------------------------------------------
+# Phase 3-1 — 연구·집필 작업실(원고 편집·근거각주·버전관리·공동검토)
+# ---------------------------------------------------------------------------
+
+
+class ManuscriptSectionKind(str, enum.Enum):
+    """일반호 기본 원고 유형 — RFP 발간지침(주요 이슈 1~2건·주요국 동향 2건·분야별 단신·
+    향후 일정·요약문) 기준. 특집호는 고정 목차를 강제하지 않으므로 CUSTOM을 쓴다."""
+
+    KEY_ISSUE = "key_issue"
+    COUNTRY_TREND = "country_trend"
+    FIELD_BRIEF = "field_brief"
+    UPCOMING_SCHEDULE = "upcoming_schedule"
+    SUMMARY = "summary"
+    CUSTOM = "custom"  # 특집호 등 자유 목차
+
+
+class IitpSelectionStatus(str, enum.Enum):
+    """내부 확정(Manuscript.status=approved)과 IITP의 외부 공식 선정은 반드시 구분한다 —
+    내부 승인을 IITP 공식 승인으로 자동 간주하지 않는다(지시사항)."""
+
+    NOT_SUBMITTED = "not_submitted"
+    PENDING = "pending"
+    SELECTED = "selected"
+    NOT_SELECTED = "not_selected"
+
+
+class ReviewCommentStatus(str, enum.Enum):
+    OPEN = "open"
+    RESOLVED = "resolved"

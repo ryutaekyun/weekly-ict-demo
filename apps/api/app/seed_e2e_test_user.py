@@ -18,7 +18,11 @@ E2E_ADMIN_PASSWORD = "E2eTest-Fixed-Pw-Admin-001!"
 E2E_RESEARCHER_EMAIL = "e2e-researcher@example.com"
 E2E_RESEARCHER_PASSWORD = "E2eTest-Fixed-Pw-Researcher-002!"
 
+E2E_REVIEWER_EMAIL = "e2e-reviewer@example.com"
+E2E_REVIEWER_PASSWORD = "E2eTest-Fixed-Pw-Reviewer-003!"
+
 ACCOUNTS = [
+    (E2E_REVIEWER_EMAIL, E2E_REVIEWER_PASSWORD, "E2E 테스트 검토자", UserRole.REVIEWER),
     (E2E_ADMIN_EMAIL, E2E_ADMIN_PASSWORD, "E2E 테스트 관리자", UserRole.ADMIN),
     (E2E_RESEARCHER_EMAIL, E2E_RESEARCHER_PASSWORD, "E2E 테스트 연구원", UserRole.RESEARCHER),
 ]

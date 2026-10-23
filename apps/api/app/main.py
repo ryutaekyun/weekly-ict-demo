@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import auth, candidates, dashboard, documents, issues, sources
+from app.api import auth, candidates, dashboard, documents, editions, issues, manuscripts, sources, users
 from app.core.config import settings
 from app.core.csrf import CSRFMiddleware
 
@@ -22,6 +22,9 @@ app.include_router(sources.router)
 app.include_router(documents.router)
 app.include_router(issues.router)
 app.include_router(dashboard.router)
+app.include_router(editions.router)
+app.include_router(manuscripts.router)
+app.include_router(users.router)
 
 
 @app.get("/health")

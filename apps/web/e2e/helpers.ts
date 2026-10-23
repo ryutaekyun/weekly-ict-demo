@@ -5,6 +5,8 @@ import { Page } from "@playwright/test";
 export const E2E_ADMIN = { email: "e2e-admin@example.com", password: "E2eTest-Fixed-Pw-Admin-001!" };
 export const E2E_RESEARCHER = { email: "e2e-researcher@example.com", password: "E2eTest-Fixed-Pw-Researcher-002!" };
 
+export const E2E_REVIEWER = { email: "e2e-reviewer@example.com", password: "E2eTest-Fixed-Pw-Reviewer-003!" };
+
 export async function login(page: Page, account: { email: string; password: string }) {
   await page.goto("/login");
   await page.getByRole("textbox").first().fill(account.email);

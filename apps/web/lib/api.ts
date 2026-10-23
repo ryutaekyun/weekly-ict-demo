@@ -441,3 +441,208 @@ export interface DashboardSummary {
 export function getDashboardSummary(): Promise<DashboardSummary> {
   return apiFetch<DashboardSummary>("/dashboard/summary");
 }
+
+export interface UserSummary {
+  id: string;
+  display_name: string;
+  role: string;
+  email: string;
+}
+
+export function listUsers(role?: string): Promise<UserSummary[]> {
+  return apiFetch<UserSummary[]>(`/users${role ? `?role=${role}` : ""}`);
+}
+
+// --- 연구·집필 작업실(Phase 3-1) ---------------------------------------------
+
+export interface EditionOut {
+  id: string;
+  publication_type: string;
+  edition_label: string;
+  target_date: string;
+  status: string;
+  fiscal_year: number | null;
+  edition_number: number | null;
+  is_special: boolean;
+  theme_title: string | null;
+  lead_researcher_user_id: string | null;
+  reviewer_user_id: string | null;
+  manuscript_count: number;
+}
+
+export function listEditions(): Promise<EditionOut[]> {
+  return apiFetch<EditionOut[]>("/editions");
+}
+
+export interface NeedsReexamination {
+  flagged: boolean;
+  reason: string | null;
+}
+
+export interface ManuscriptListItem {
+  id: string;
+  edition_id: string | null;
+  candidate_id: string | null;
+  author_user_id: string;
+  reviewer_user_id: string | null;
+  title: string;
+  title_en: string | null;
+  manuscript_type: string;
+  status: string;
+  is_pilot: boolean;
+  iitp_selection_status: string;
+  lock_version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ManuscriptDetail extends ManuscriptListItem {
+  body: string | null;
+  body_json: string | null;
+  iitp_selection_note: string | null;
+  iitp_confirmed_by_user_id: string | null;
+  iitp_confirmed_at: string | null;
+  needs_reexamination: NeedsReexamination;
+  footnote_verification_total: number;
+  footnote_verification_verified: number;
+}
+
+export function listManuscripts(filters: { edition_id?: string; status_filter?: string; candidate_id?: string } = {}): Promise<ManuscriptListItem[]> {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([k, v]) => { if (v) params.set(k, v); });
+  const qs = params.toString();
+  return apiFetch<ManuscriptListItem[]>(`/manuscripts${qs ? `?${qs}` : ""}`);
+}
+
+export function createManuscript(payload: { candidate_id?: string; edition_id?: string; manuscript_type: string; title: string; is_pilot?: boolean }): Promise<ManuscriptDetail> {
+  return apiFetch<ManuscriptDetail>("/manuscripts", { method: "POST", body: JSON.stringify(payload) });
+}
+
+export function getManuscript(id: string): Promise<ManuscriptDetail> {
+  return apiFetch<ManuscriptDetail>(`/manuscripts/${id}`);
+}
+
+export function getManuscriptContext(id: string): Promise<{ candidate: CandidateDetail | null; issue: IssueDetail | null }> {
+  return apiFetch(`/manuscripts/${id}/context`);
+}
+
+export function updateManuscriptBody(
+  id: string,
+  payload: { title?: string; title_en?: string; body_json: string; body: string; lock_version: number; change_note?: string; is_milestone?: boolean },
+): Promise<ManuscriptDetail> {
+  return apiFetch<ManuscriptDetail>(`/manuscripts/${id}`, { method: "PATCH", body: JSON.stringify(payload) });
+}
+
+export interface ManuscriptVersionListItem {
+  id: string;
+  version_no: number;
+  edited_by_user_id: string;
+  change_note: string | null;
+  is_milestone: boolean;
+  created_at: string;
+}
+
+export interface ManuscriptVersionDetail extends ManuscriptVersionListItem {
+  manuscript_id: string;
+  body_snapshot: string;
+  body_json_snapshot: string | null;
+}
+
+export function listManuscriptVersions(id: string): Promise<ManuscriptVersionListItem[]> {
+  return apiFetch<ManuscriptVersionListItem[]>(`/manuscripts/${id}/versions`);
+}
+
+export function getManuscriptVersion(id: string, versionId: string): Promise<ManuscriptVersionDetail> {
+  return apiFetch<ManuscriptVersionDetail>(`/manuscripts/${id}/versions/${versionId}`);
+}
+
+export function restoreManuscriptVersion(id: string, versionId: string): Promise<ManuscriptDetail> {
+  return apiFetch<ManuscriptDetail>(`/manuscripts/${id}/versions/${versionId}/restore`, { method: "POST" });
+}
+
+export function requestManuscriptReview(id: string, reviewerUserId: string): Promise<ManuscriptDetail> {
+  return apiFetch<ManuscriptDetail>(`/manuscripts/${id}/review-request`, { method: "POST", body: JSON.stringify({ reviewer_user_id: reviewerUserId }) });
+}
+
+export function requestManuscriptChanges(id: string, commentText: string): Promise<ManuscriptDetail> {
+  return apiFetch<ManuscriptDetail>(`/manuscripts/${id}/request-changes`, { method: "POST", body: JSON.stringify({ comment_text: commentText }) });
+}
+
+export function approveManuscript(id: string, comment?: string): Promise<ManuscriptDetail> {
+  return apiFetch<ManuscriptDetail>(`/manuscripts/${id}/approve`, { method: "POST", body: JSON.stringify({ comment }) });
+}
+
+export function reopenManuscript(id: string): Promise<ManuscriptDetail> {
+  return apiFetch<ManuscriptDetail>(`/manuscripts/${id}/reopen`, { method: "POST" });
+}
+
+export function updateIitpSelection(id: string, payload: { iitp_selection_status: string; iitp_selection_note?: string }): Promise<ManuscriptDetail> {
+  return apiFetch<ManuscriptDetail>(`/manuscripts/${id}/iitp-selection`, { method: "PATCH", body: JSON.stringify(payload) });
+}
+
+export interface FootnoteOut {
+  id: string;
+  manuscript_id: string;
+  mark_id: string;
+  anchor_text: string;
+  source_document_id: string | null;
+  source_url: string;
+  source_org: string | null;
+  excerpt: string | null;
+  location_label: string | null;
+  published_at: string | null;
+  accessed_at: string | null;
+  verification_status: string;
+  verified_by_user_id: string | null;
+  verified_at: string | null;
+  created_by_user_id: string;
+  updated_at: string;
+}
+
+export function listFootnotes(manuscriptId: string): Promise<FootnoteOut[]> {
+  return apiFetch<FootnoteOut[]>(`/manuscripts/${manuscriptId}/footnotes`);
+}
+
+export function createFootnote(manuscriptId: string, payload: {
+  mark_id: string; anchor_text: string; source_url: string; source_document_id?: string;
+  source_org?: string; excerpt?: string; location_label?: string;
+}): Promise<FootnoteOut> {
+  return apiFetch<FootnoteOut>(`/manuscripts/${manuscriptId}/footnotes`, { method: "POST", body: JSON.stringify(payload) });
+}
+
+export function updateFootnote(manuscriptId: string, footnoteId: string, payload: Partial<FootnoteOut>): Promise<FootnoteOut> {
+  return apiFetch<FootnoteOut>(`/manuscripts/${manuscriptId}/footnotes/${footnoteId}`, { method: "PATCH", body: JSON.stringify(payload) });
+}
+
+export function verifyFootnote(manuscriptId: string, footnoteId: string, matched: boolean): Promise<FootnoteOut> {
+  return apiFetch<FootnoteOut>(`/manuscripts/${manuscriptId}/footnotes/${footnoteId}/verify?matched=${matched}`, { method: "POST" });
+}
+
+export function deleteFootnote(manuscriptId: string, footnoteId: string): Promise<void> {
+  return apiFetch<void>(`/manuscripts/${manuscriptId}/footnotes/${footnoteId}`, { method: "DELETE" });
+}
+
+export interface ManuscriptCommentOut {
+  id: string;
+  manuscript_id: string;
+  author_user_id: string;
+  parent_comment_id: string | null;
+  anchor_text: string | null;
+  comment_text: string;
+  status: string;
+  resolved_by_user_id: string | null;
+  resolved_at: string | null;
+  created_at: string;
+}
+
+export function listManuscriptComments(manuscriptId: string): Promise<ManuscriptCommentOut[]> {
+  return apiFetch<ManuscriptCommentOut[]>(`/manuscripts/${manuscriptId}/comments`);
+}
+
+export function createManuscriptComment(manuscriptId: string, payload: { comment_text: string; anchor_text?: string; parent_comment_id?: string }): Promise<ManuscriptCommentOut> {
+  return apiFetch<ManuscriptCommentOut>(`/manuscripts/${manuscriptId}/comments`, { method: "POST", body: JSON.stringify(payload) });
+}
+
+export function resolveManuscriptComment(manuscriptId: string, commentId: string): Promise<ManuscriptCommentOut> {
+  return apiFetch<ManuscriptCommentOut>(`/manuscripts/${manuscriptId}/comments/${commentId}/resolve`, { method: "POST" });
+}

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
-import { apiFetch, UnauthorizedError, updateCandidate, type CandidateDetail } from "@/lib/api";
+import { apiFetch, createManuscript, UnauthorizedError, updateCandidate, type CandidateDetail } from "@/lib/api";
 import { CANDIDATE_STATUS_LABELS, FIELD_LABELS, METHOD_LABELS, fmtDate, fmtDateOnly } from "@/lib/labels";
 
 type ScoreNumericKey = "policy_impact_score" | "timeliness_score" | "domestic_relevance_score" | "novelty_score" | "analysis_depth_score";
@@ -35,6 +35,7 @@ export default function CandidateDetailPage() {
   const [editTitle, setEditTitle] = useState("");
   const [editReason, setEditReason] = useState("");
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
+  const [startingManuscript, setStartingManuscript] = useState(false);
 
   function load() {
     apiFetch<CandidateDetail>(`/candidates/${params.id}`)
@@ -104,6 +105,19 @@ export default function CandidateDetailPage() {
   const scoredCriteriaCount = score ? SCORE_CRITERIA.filter((c) => score[c.key] !== null).length : 0;
   const isPartialScore = score ? scoredCriteriaCount < SCORE_CRITERIA.length : false;
 
+  async function handleStartManuscript() {
+    setStartingManuscript(true);
+    try {
+      const manuscript = await createManuscript({
+        candidate_id: candidate!.id, manuscript_type: "key_issue", title: candidate!.title,
+      });
+      router.push(`/manuscripts/${manuscript.id}`);
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "원고 생성 실패");
+      setStartingManuscript(false);
+    }
+  }
+
   return (
     <AppShell>
       <div style={{ marginBottom: 10 }}>
@@ -118,6 +132,17 @@ export default function CandidateDetailPage() {
         <span>발표 {fmtDateOnly(candidate.announced_date)}</span>
         <span>{candidate.source_org ?? ""}</span>
         {candidate.issue_cluster_id && <Link href={`/issues/${candidate.issue_cluster_id}`}>관련 이슈 분석 보기 →</Link>}
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <button className="tbtn primary" disabled={startingManuscript} onClick={handleStartManuscript}>
+          {startingManuscript ? "원고 생성 중..." : "원고 작성 시작"}
+        </button>
+        {candidate.status !== "final" && (
+          <span style={{ fontSize: 11.5, color: "var(--ink-muted)", marginLeft: 8 }}>
+            아직 내부 확정 전 후보입니다 — 사전 검토용 원고로 작성됩니다(IITP 공식 선정 아님)
+          </span>
+        )}
       </div>
 
       {candidate.summary && <p style={{ fontSize: 13.5 }}>{candidate.summary}</p>}

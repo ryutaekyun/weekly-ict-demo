@@ -16,6 +16,7 @@ test("시나리오 D — 문서 선택 → 분류 수정 → 저장 → 새로�
   await expect(page.getByText("실무 활용성 평가가 저장되었습니다")).toBeVisible();
 
   await page.reload();
-  await expect(page.getByText("연구원 수정됨")).toBeVisible();
+  // 분류·평가 두 섹션 모두 같은 문구를 쓰므로(반복 실행 시 둘 다 표시될 수 있음) 평가 섹션으로 범위를 좁힌다
+  await expect(page.getByText("우선 검토 · 연구원 수정됨").or(page.getByText("추가 확인 필요 · 연구원 수정됨"))).toBeVisible();
   await expect(page.locator("form", { hasText: "실무 활용성 평가" }).locator("select")).toHaveValue(next);
 });
