@@ -36,6 +36,7 @@ def _skip_rendering_unless_marked(request, monkeypatch):
         monkeypatch.setattr(report_pdf, "find_soffice", lambda: None)
 
 
+@pytest.mark.render
 def test_libreoffice_is_available_when_required_by_ci():
     """CI에서는 PDF 렌더링 검증이 생략(skip)되어 통과로 보이는 일이 없도록 LibreOffice 설치를 필수로 확인한다."""
     if os.environ.get("REQUIRE_SOFFICE") == "1":
