@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     # 로컬 http 개발 환경에서는 false로 둬야 쿠키가 브라우저에 저장된다.
     cookie_secure: bool = False
 
+    # 생성된 DOCX/PDF 출력본 저장 위치(서버 로컬, 공개 저장소에 올라가지 않음 — 인증된 API로만 내려받는다)
+    export_dir: str = "./storage/exports"
+
     max_failed_login_attempts: int = 5
     login_lockout_minutes: int = 15
 

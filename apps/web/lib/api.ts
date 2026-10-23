@@ -30,7 +30,13 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
   if (res.status === 401) throw new UnauthorizedError("로그인이 필요합니다");
   if (!res.ok) {
     const body = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(body.detail ?? `요청 실패 (${res.status})`);
+    const detail = body.detail;
+    if (detail && typeof detail === "object" && !Array.isArray(detail)) {
+      // 구조화된 오류(예: 출력용 확정 차단 사유) — 메시지와 사유 목록을 함께 보여준다
+      const reasons = Array.isArray(detail.blocking) ? ` (${detail.blocking.map((b: { message: string }) => b.message).join(" / ")})` : "";
+      throw new Error(`${detail.message ?? "요청 실패"}${reasons}`);
+    }
+    throw new Error(typeof detail === "string" ? detail : `요청 실패 (${res.status})`);
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
@@ -645,4 +651,62 @@ export function createManuscriptComment(manuscriptId: string, payload: { comment
 
 export function resolveManuscriptComment(manuscriptId: string, commentId: string): Promise<ManuscriptCommentOut> {
   return apiFetch<ManuscriptCommentOut>(`/manuscripts/${manuscriptId}/comments/${commentId}/resolve`, { method: "POST" });
+}
+
+// ---- Phase 3-2: 보고서·요약본 제작 ------------------------------------------
+export interface ReportListItem {
+  id: string; report_type: "general" | "special" | "summary"; title: string; status: string;
+  edition_id: string | null; created_by_user_id: string; created_at: string; updated_at: string;
+}
+export interface ReportItemOut {
+  id: string; position: number; part_key: string | null; heading: string | null; manuscript_id: string | null;
+  manuscript_title: string | null; manuscript_status: string | null; summary_text: string | null;
+  source_sentence: string | null; needs_review: boolean;
+}
+export interface PreflightIssue { level: "error" | "warn" | "info"; code: string; message: string; part: string | null }
+export interface ReportDetail extends ReportListItem {
+  title_en: string | null; publish_date: string | null; template_id: string | null; iitp_confirmed: boolean;
+  finalize_exception_reason: string | null; finalized_at: string | null;
+  items: ReportItemOut[]; preflight: PreflightIssue[]; blocking: PreflightIssue[];
+}
+export interface ReportExportOut {
+  id: string; report_id: string; file_format: "docx" | "pdf"; status: "running" | "success" | "failed";
+  error_message: string | null; template_version: number | null; file_name: string | null;
+  file_sha256: string | null; file_size: number | null; page_count: number | null;
+  footnote_count: number | null; table_count: number | null; is_final: boolean;
+  created_by_user_id: string; created_at: string; finished_at: string | null;
+  manuscript_versions_json: string | null; validation_json: string | null;
+}
+
+export const listReports = () => apiFetch<ReportListItem[]>("/reports");
+export const createReport = (payload: { report_type: string; title: string; title_en?: string }) =>
+  apiFetch<ReportDetail>("/reports", { method: "POST", body: JSON.stringify(payload) });
+export const getReport = (id: string) => apiFetch<ReportDetail>(`/reports/${id}`);
+export const updateReport = (id: string, payload: Partial<{ title: string; title_en: string }>) =>
+  apiFetch<ReportDetail>(`/reports/${id}`, { method: "PATCH", body: JSON.stringify(payload) });
+export const addReportItem = (id: string, payload: { part_key?: string; heading?: string; manuscript_id: string }) =>
+  apiFetch<ReportDetail>(`/reports/${id}/items`, { method: "POST", body: JSON.stringify(payload) });
+export const addSummaryItem = (id: string, payload: { part_key: string; manuscript_id: string; source_sentence: string }) =>
+  apiFetch<ReportDetail>(`/reports/${id}/summary-items`, { method: "POST", body: JSON.stringify(payload) });
+export const updateReportItem = (id: string, itemId: string, payload: Partial<{ heading: string; summary_text: string }>) =>
+  apiFetch<ReportDetail>(`/reports/${id}/items/${itemId}`, { method: "PATCH", body: JSON.stringify(payload) });
+export const deleteReportItem = (id: string, itemId: string) =>
+  apiFetch<ReportDetail>(`/reports/${id}/items/${itemId}`, { method: "DELETE" });
+export const reorderReportItems = (id: string, itemIds: string[]) =>
+  apiFetch<ReportDetail>(`/reports/${id}/items/reorder`, { method: "POST", body: JSON.stringify({ item_ids: itemIds }) });
+export const getSourceSentences = (manuscriptId: string) =>
+  apiFetch<{ manuscript_id: string; title: string; sentences: string[] }>(`/reports/source-sentences/${manuscriptId}`);
+export const listReportExports = (id: string) => apiFetch<ReportExportOut[]>(`/reports/${id}/exports`);
+export const createReportExport = (id: string, fileFormat: "docx" | "pdf") =>
+  apiFetch<ReportExportOut>(`/reports/${id}/exports`, { method: "POST", body: JSON.stringify({ file_format: fileFormat }) });
+export const finalizeReport = (id: string, exceptionReason?: string) =>
+  apiFetch<ReportDetail>(`/reports/${id}/finalize`, { method: "POST", body: JSON.stringify({ exception_reason: exceptionReason || null }) });
+export const reopenReport = (id: string) => apiFetch<ReportDetail>(`/reports/${id}/reopen`, { method: "POST" });
+
+/** 인증 쿠키로 출력 파일을 받아 Blob으로 돌려준다(브라우저 다운로드·PDF 미리보기에 사용). */
+export async function fetchReportExportBlob(reportId: string, exportId: string): Promise<Blob> {
+  const res = await fetch(`${API_BASE}/reports/${reportId}/exports/${exportId}/download`, { credentials: "include" });
+  if (res.status === 401) throw new UnauthorizedError("로그인이 필요합니다");
+  if (!res.ok) throw new Error("파일을 내려받을 수 없습니다");
+  return res.blob();
 }

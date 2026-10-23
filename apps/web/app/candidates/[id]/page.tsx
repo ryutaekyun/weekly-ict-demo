@@ -36,6 +36,7 @@ export default function CandidateDetailPage() {
   const [editReason, setEditReason] = useState("");
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const [startingManuscript, setStartingManuscript] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
 
   function load() {
     apiFetch<CandidateDetail>(`/candidates/${params.id}`)
@@ -113,7 +114,7 @@ export default function CandidateDetailPage() {
       });
       router.push(`/manuscripts/${manuscript.id}`);
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : "원고 생성 실패");
+      setStartError(err instanceof Error ? err.message : "원고 생성 실패");
       setStartingManuscript(false);
     }
   }
@@ -138,6 +139,7 @@ export default function CandidateDetailPage() {
         <button className="tbtn primary" disabled={startingManuscript} onClick={handleStartManuscript}>
           {startingManuscript ? "원고 생성 중..." : "원고 작성 시작"}
         </button>
+        {startError && <span role="alert" style={{ marginLeft: 8, color: "var(--danger, #b42318)", fontSize: 12.5 }}>{startError}</span>}
         {candidate.status !== "final" && (
           <span style={{ fontSize: 11.5, color: "var(--ink-muted)", marginLeft: 8 }}>
             아직 내부 확정 전 후보입니다 — 사전 검토용 원고로 작성됩니다(IITP 공식 선정 아님)

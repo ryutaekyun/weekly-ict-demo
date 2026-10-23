@@ -81,10 +81,17 @@ export default function ManuscriptWorkspacePage() {
   const [iitpPrompt, setIitpPrompt] = useState<"selected" | "not_selected" | null>(null);
   const [iitpNote, setIitpNote] = useState("");
   const [actionMsg, setActionMsg] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [activeFootnote, setActiveFootnote] = useState<string | null>(null);
 
   const editorRef = useRef<Editor | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const titleRef = useRef<HTMLInputElement | null>(null);
+  const manuscriptRef = useRef<ManuscriptDetail | null>(null);
+  const saveInFlightRef = useRef(false);
+  const queuedSaveRef = useRef<{ json: string; text: string; opts: { milestone?: boolean; changeNote?: string } } | null>(null);
+
+  useEffect(() => { manuscriptRef.current = manuscript; }, [manuscript]);
 
   const load = useCallback(() => {
     const id = params.id;
@@ -121,7 +128,9 @@ export default function ManuscriptWorkspacePage() {
   }
 
   async function doSave(json: string, text: string, opts: { milestone?: boolean; changeNote?: string } = {}) {
-    if (!manuscript) return;
+    // 예약된 타이머가 만들어질 때의(오래된) 렌더 값이 아니라 항상 최신 원고(ref)를 기준으로 저장한다.
+    const current = manuscriptRef.current;
+    if (!current) return;
     // 디바운스 자동저장과 명시적 저장(버전저장·각주연결 등)이 겹치면 둘 다 같은(오래된)
     // lock_version으로 요청을 보내 서로 충돌로 보이는 409가 날 수 있다 — 어느 경로로 저장이
     // 들어오든 대기 중인 예약 저장은 항상 취소한다.
@@ -129,21 +138,37 @@ export default function ManuscriptWorkspacePage() {
       clearTimeout(saveTimerRef.current);
       saveTimerRef.current = null;
     }
+    // 앞선 저장이 진행 중이면 최신 내용만 대기열에 두고, 끝난 뒤 갱신된 lock_version으로 이어서 저장한다
+    // (진행 중인 요청과 동시에 보내면 스스로 만든 409 충돌이 난다).
+    if (saveInFlightRef.current) {
+      queuedSaveRef.current = { json, text, opts };
+      return;
+    }
+    saveInFlightRef.current = true;
     setSaveStatus("saving");
+    let succeeded = false;
     try {
-      const updated = await updateManuscriptBody(manuscript.id, {
-        body_json: json, body: text, lock_version: manuscript.lock_version,
+      const updated = await updateManuscriptBody(current.id, {
+        title: titleRef.current?.value.trim() || undefined,  // 제목 입력란 수정도 함께 저장한다
+        body_json: json, body: text, lock_version: current.lock_version,
         is_milestone: opts.milestone, change_note: opts.changeNote,
       });
+      manuscriptRef.current = updated;
       setManuscript(updated);
       setSaveStatus("saved");
-      listManuscriptVersions(manuscript.id).then(setVersions).catch(() => {});
+      succeeded = true;
+      listManuscriptVersions(current.id).then(setVersions).catch(() => {});
     } catch (err) {
       if (err instanceof Error && err.message.includes("다른 사용자가")) {
         setSaveStatus("conflict");
       } else {
         setSaveStatus("error");
       }
+    } finally {
+      saveInFlightRef.current = false;
+      const queued = queuedSaveRef.current;
+      queuedSaveRef.current = null;
+      if (queued && succeeded) void doSave(queued.json, queued.text, queued.opts);
     }
   }
 
@@ -161,9 +186,10 @@ export default function ManuscriptWorkspacePage() {
     if (!editor) return;
     const { from, to } = editor.state.selection;
     if (from === to) {
-      window.alert("먼저 본문에서 근거를 연결할 문장을 선택하세요");
+      setErrorMsg("먼저 본문에서 근거를 연결할 문장을 선택하세요");
       return;
     }
+    setErrorMsg(null);
     const text = editor.state.doc.textBetween(from, to, " ");
     setFootnoteDraft({ text, from, to });
     setRightTab("footnotes");
@@ -172,7 +198,7 @@ export default function ManuscriptWorkspacePage() {
   async function submitFootnote() {
     if (!manuscript || !footnoteDraft || !editorRef.current) return;
     if (!footnoteForm.source_url.trim()) {
-      window.alert("원문 URL을 입력하세요");
+      setErrorMsg("원문 URL을 입력하세요");
       return;
     }
     const markId = crypto.randomUUID();
@@ -198,7 +224,7 @@ export default function ManuscriptWorkspacePage() {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
       doSave(JSON.stringify(editorRef.current.getJSON()), editorRef.current.getText());
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : "근거 연결 실패");
+      setErrorMsg(err instanceof Error ? err.message : "근거 연결 실패");
     }
   }
 
@@ -350,6 +376,7 @@ export default function ManuscriptWorkspacePage() {
           </span>
         )}
         {actionMsg && <span style={{ color: "var(--ok)" }}>{actionMsg}</span>}
+        {errorMsg && <span role="alert" style={{ color: "var(--danger, #b42318)" }}>{errorMsg}</span>}
         <button className="tbtn" disabled={!canEdit || !editorRef.current} onClick={() => setMilestonePrompt(true)}>
           주요 버전 저장
         </button>
@@ -440,6 +467,7 @@ export default function ManuscriptWorkspacePage() {
             editable={canEdit}
             onUpdate={handleEditorUpdate}
             onEditorReady={(editor) => { editorRef.current = editor; }}
+            onFootnoteClick={(markId) => { setActiveFootnote(markId); setRightTab("footnotes"); }}
           />
         </div>
 
@@ -471,11 +499,11 @@ export default function ManuscriptWorkspacePage() {
               )}
               {footnotes.length === 0 && <p style={{ color: "var(--ink-muted)", fontSize: 12.5 }}>연결된 각주가 없습니다. 본문에서 문장을 선택하고 &ldquo;선택 영역에 근거 연결&rdquo;을 눌러보세요.</p>}
               {footnoteOrder.map((fid, idx) => {
-                const f = footnotes.find((x) => x.id === fid);
+                const f = footnotes.find((x) => x.mark_id === fid);
                 if (!f) return null;
-                return <FootnoteCard key={f.id} index={idx + 1} footnote={f} onVerify={handleVerify} />;
+                return <FootnoteCard key={f.id} index={idx + 1} footnote={f} onVerify={handleVerify} active={activeFootnote === f.mark_id} />;
               })}
-              {footnotes.filter((f) => !footnoteOrder.includes(f.id)).map((f) => (
+              {footnotes.filter((f) => !footnoteOrder.includes(f.mark_id)).map((f) => (
                 <FootnoteCard key={f.id} index={null} footnote={f} onVerify={handleVerify} />
               ))}
             </div>
@@ -591,9 +619,9 @@ function ContextPanel({ context }: { context: { candidate: any; issue: any } | n
   );
 }
 
-function FootnoteCard({ index, footnote, onVerify }: { index: number | null; footnote: FootnoteOut; onVerify: (id: string, matched: boolean) => void }) {
+function FootnoteCard({ index, footnote, onVerify, active }: { index: number | null; footnote: FootnoteOut; onVerify: (id: string, matched: boolean) => void; active?: boolean }) {
   return (
-    <div className="panel" style={{ marginBottom: 8, fontSize: 12 }}>
+    <div className="panel" id={`fn-${footnote.mark_id}`} style={{ marginBottom: 8, fontSize: 12, outline: active ? "2px solid var(--navy)" : undefined }}>
       <div style={{ fontWeight: 700 }}>{index ? `[${index}] ` : ""}{footnote.source_org ?? "출처 미상"}</div>
       <div style={{ color: "var(--ink-muted)", margin: "2px 0" }}>&ldquo;{footnote.anchor_text.slice(0, 60)}&rdquo;</div>
       <a href={footnote.source_url} target="_blank" rel="noreferrer" style={{ fontSize: 11.5 }}>{footnote.source_url}</a>

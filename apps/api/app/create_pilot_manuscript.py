@@ -24,6 +24,14 @@ from app.services import manuscript_comment_service, manuscript_footnote_service
 PILOT_TITLE = "[시범] 미국 NHTSA 전기차 동력계 안전기준(FMVSS 305a) 제정 동향"
 
 # (키, 문서 제목 일부, 발췌문)
+ANCHORS = {
+    "nprm_scope": "미국 NHTSA는 2024.4.15. 기존 FMVSS No. 305를 대체하는 FMVSS No. 305a 제정안(NPRM, Docket NHTSA-2024-0012, RIN 2127-AM43)을 공고함",
+    "nprm_comment": "의견수렴 마감은 2024.6.14.이었음",
+    "final_effective": "최종 규정은 2025.2.18.부터 시행됨",
+    "final_emergency": "비상대응정보 문서화 요건의 준수 시한은 2025.12.22.임",
+    "final_light": "총중량 4,536kg 이하 차량의 그 밖의 요건 준수 시한은 2027.9.1.임",
+}
+
 EXCERPTS = {
     "nprm_scope": ("Proposed Rules", "NHTSA proposes to establish Federal Motor Vehicle Safety Standard (FMVSS) No. 305a to replace FMVSS No. 305"),
     "nprm_comment": ("Proposed Rules", "Comments should be submitted no later than June 14, 2024."),
@@ -108,7 +116,7 @@ def main() -> None:
             footnote_ids[key] = mark_id
             footnotes[key] = manuscript_footnote_service.create_footnote(
                 db, manuscript_id=manuscript.id, created_by_user_id=author.id, mark_id=mark_id,
-                anchor_text=key, source_url=d.origin_url, source_document_id=d.id,
+                anchor_text=ANCHORS[key], source_url=d.origin_url, source_document_id=d.id,
                 source_org="미국 국가도로교통안전청(NHTSA)", excerpt=excerpt, location_label=None,
                 published_at=d.published_at,
             )

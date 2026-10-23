@@ -16,3 +16,5 @@ apps/web/test-results/
 # OS
 .DS_Store
 Thumbs.db
+apps/api/storage/
+apps/web/tsconfig.tsbuildinfo

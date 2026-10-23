@@ -13,11 +13,13 @@ export default function ManuscriptEditor({
   editable,
   onUpdate,
   onEditorReady,
+  onFootnoteClick,
 }: {
   initialJson: string | null;
   editable: boolean;
   onUpdate: (json: string, text: string) => void;
   onEditorReady: (editor: Editor) => void;
+  onFootnoteClick?: (footnoteMarkId: string) => void;
 }) {
   let initialContent: unknown = "";
   if (initialJson) {
@@ -39,6 +41,15 @@ export default function ManuscriptEditor({
     content: initialContent || "<p></p>",
     editable,
     immediatelyRender: false,
+    editorProps: {
+      // 본문의 각주 번호([n])를 누르면 오른쪽 패널에서 해당 근거(원문·발췌·검증 상태)를 보여준다
+      handleClick: (_view, _pos, event) => {
+        const el = (event.target as HTMLElement | null)?.closest?.(".footnote-ref");
+        const id = el?.getAttribute("data-footnote-id");
+        if (id && onFootnoteClick) onFootnoteClick(id);
+        return false;
+      },
+    },
     onUpdate: ({ editor }) => {
       // 읽기 전용(승인 후·권한 없음)으로 전환될 때 발생하는 갱신은 사용자 수정이 아니므로 저장하지 않는다
       if (!editor.isEditable) return;

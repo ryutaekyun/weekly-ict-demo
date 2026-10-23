@@ -56,6 +56,13 @@ test("시나리오 C — 문장에 원문 근거 연결(각주) 후 저장·재�
   await expect(page.getByText("https://example.org/official-doc")).toBeVisible();
   await expect(page.getByText("위치 미확인")).toBeVisible();
   await expect(page.locator(".ProseMirror .footnote-ref")).toBeVisible();
+  // 본문에 각주 번호([1])가 표시되고, 누르면 오른쪽 패널의 해당 근거 카드가 강조된다(Phase 3-2)
+  const shown = await page.locator(".ProseMirror .footnote-ref").first().evaluate((el) => getComputedStyle(el, "::after").content);
+  expect(shown).toContain("counter(fnnum)"); // 번호는 CSS 카운터로 문서 순서대로 매겨진다(계산값은 스크린샷으로 확인)
+  await page.locator(".ProseMirror").screenshot({ path: "test-results/footnote-number.png" });
+  await page.getByRole("button", { name: /^버전\(/ }).click();
+  await page.locator(".ProseMirror .footnote-ref").first().click();
+  await expect(page.getByText("https://example.org/official-doc")).toBeVisible();
 });
 
 test("시나리오 D — 주요 버전 저장 후 수정, 이전 버전 복원", async ({ page }) => {

@@ -11,6 +11,7 @@ from app.models.manuscript import Manuscript
 from app.models.manuscript_version import ManuscriptVersion
 from app.models.manuscript_footnote import ManuscriptFootnote
 from app.models.manuscript_comment import ManuscriptComment
+from app.models.report import Report, ReportExport, ReportItem, ReportTemplate
 from app.models.approval import Approval
 from app.models.publication import Publication
 from app.models.audit_log import AuditLog
@@ -40,6 +41,10 @@ __all__ = [
     "ManuscriptVersion",
     "ManuscriptFootnote",
     "ManuscriptComment",
+    "Report",
+    "ReportItem",
+    "ReportExport",
+    "ReportTemplate",
     "Approval",
     "Publication",
     "AuditLog",

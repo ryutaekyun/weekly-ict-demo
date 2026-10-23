@@ -12,6 +12,7 @@ const NAV_ITEMS: { href: string; label: string; disabled?: boolean }[] = [
   { href: "/issues", label: "핵심 이슈 분석" },
   { href: "/candidates", label: "후보주제 선정·검토" },
   { href: "/manuscripts", label: "연구·집필 작업실" },
+  { href: "/reports", label: "보고서·요약본 제작" },
   { href: "/sources", label: "출처·수집 관리" },
   { href: "/settings", label: "사용자 및 운영 설정" },
   { href: "/publications", label: "카드뉴스·발간관리 (추후 개발)", disabled: true },

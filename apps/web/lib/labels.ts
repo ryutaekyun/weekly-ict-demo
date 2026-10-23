@@ -100,3 +100,6 @@ export function fmtDateOnly(value: string | null | undefined): string {
   if (!value) return "-";
   return new Date(value).toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul" });
 }
+
+export const REPORT_TYPE_LABELS: Record<string, string> = { general: "일반호 보고서", special: "특집호 보고서", summary: "요약본" };
+export const REPORT_STATUS_LABELS: Record<string, string> = { draft: "작성 중", final: "출력용 확정" };

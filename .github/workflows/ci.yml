@@ -60,13 +60,25 @@ jobs:
           DATABASE_URL: postgresql+psycopg2://tnp:tnp_ci_password@localhost:5432/tnp_platform_test
           PYTHONPATH: .
         run: alembic upgrade head
+      - name: Install LibreOffice + Korean fonts (PDF 렌더링 검증용)
+        run: bash .github/scripts/install_report_tools.sh
       - name: Run full pytest suite against real PostgreSQL
         working-directory: apps/api
         env:
           DATABASE_URL: postgresql+psycopg2://tnp:tnp_ci_password@localhost:5432/tnp_platform_test
           TEST_DATABASE_URL: postgresql+psycopg2://tnp:tnp_ci_password@localhost:5432/tnp_platform_test
           PYTHONPATH: .
+          REQUIRE_SOFFICE: "1"
+          REPORT_SAMPLE_DIR: ${{ github.workspace }}/report-samples
         run: pytest -q
+      - name: Upload rendered sample (synthetic data only)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: report-samples
+          path: report-samples/
+          if-no-files-found: ignore
+          retention-days: 7
 
   frontend-build:
     name: Next.js build
@@ -129,6 +141,9 @@ jobs:
         env:
           PYTHONPATH: .
         run: python -m app.seed_ci_fixtures
+
+      - name: Install LibreOffice + Korean fonts (PDF 출력용)
+        run: bash .github/scripts/install_report_tools.sh
 
       - name: Start FastAPI backend
         working-directory: apps/api
