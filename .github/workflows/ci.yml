@@ -134,12 +134,15 @@ jobs:
         working-directory: apps/api
         env:
           PYTHONPATH: .
-        run: nohup uvicorn app.main:app --host 127.0.0.1 --port 8000 > ../../api.log 2>&1 &
+        # localhost로 바인딩한다 — 쿠키는 포트가 아니라 호스트 단위로 저장되므로,
+        # 프런트엔드(localhost:3000)와 호스트명이 다르면(예: 127.0.0.1) CSRF 쿠키를
+        # document.cookie로 읽지 못해 PATCH/POST 요청이 전부 실패한다.
+        run: nohup uvicorn app.main:app --host localhost --port 8000 > ../../api.log 2>&1 &
 
       - name: Wait for backend /health
         run: |
           for i in $(seq 1 30); do
-            if curl -sf http://127.0.0.1:8000/health; then exit 0; fi
+            if curl -sf http://localhost:8000/health; then exit 0; fi
             sleep 1
           done
           echo "backend failed to become healthy"; cat api.log; exit 1
@@ -155,19 +158,19 @@ jobs:
       - name: Production build (frontend)
         working-directory: apps/web
         env:
-          NEXT_PUBLIC_API_URL: http://127.0.0.1:8000
+          NEXT_PUBLIC_API_URL: http://localhost:8000
         run: npm run build
 
       - name: Start Next.js (production)
         working-directory: apps/web
         env:
-          NEXT_PUBLIC_API_URL: http://127.0.0.1:8000
+          NEXT_PUBLIC_API_URL: http://localhost:8000
         run: nohup npm run start > ../../web.log 2>&1 &
 
       - name: Wait for frontend
         run: |
           for i in $(seq 1 30); do
-            if curl -sf http://127.0.0.1:3000/login > /dev/null; then exit 0; fi
+            if curl -sf http://localhost:3000/login > /dev/null; then exit 0; fi
             sleep 1
           done
           echo "frontend failed to become healthy"; cat web.log; exit 1

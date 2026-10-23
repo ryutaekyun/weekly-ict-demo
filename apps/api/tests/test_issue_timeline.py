@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
-import uuid
 
-from app.models.enums import DocumentType, IssueMembershipType, SourceDocumentStatus, SourceType
+from app.models.enums import DocumentType, FieldCode, IssueMembershipType, SourceDocumentStatus, SourceType
+from app.models.issue_cluster import IssueCluster
 from app.models.source import Source
 from app.models.source_document import SourceDocument
 from app.services.issue_timeline import record_timeline_event
@@ -31,12 +31,22 @@ def _make_source(db_session):
     return source
 
 
+def _make_cluster(db_session):
+    """실제 FK 제약(PostgreSQL)을 만족하는 최소한의 클러스터 — 테스트는 순수 이벤트분류
+    로직만 검증하므로 내용은 임의값이어도 된다."""
+    cluster = IssueCluster(title="Test Cluster", field_code=FieldCode.SW, first_seen_at=datetime.now(timezone.utc))
+    db_session.add(cluster)
+    db_session.commit()
+    db_session.refresh(cluster)
+    return cluster
+
+
 def test_first_document_is_new_issue(db_session):
     source = _make_source(db_session)
     doc = _make_doc(db_session, source, "Notice of Proposed Rulemaking on X", datetime(2024, 1, 1, tzinfo=timezone.utc))
 
     event = record_timeline_event(
-        db_session, cluster_id=uuid.uuid4(), document=doc,
+        db_session, cluster_id=_make_cluster(db_session).id, document=doc,
         membership_type=IssueMembershipType.PRIMARY, previous_document=None,
     )
 
@@ -53,7 +63,7 @@ def test_proposed_to_final_is_substantive_change(db_session):
     from app.models.enums import TimelineEventType
 
     event = record_timeline_event(
-        db_session, cluster_id=uuid.uuid4(), document=final,
+        db_session, cluster_id=_make_cluster(db_session).id, document=final,
         membership_type=IssueMembershipType.FOLLOW_UP, previous_document=proposed,
     )
 
@@ -70,7 +80,7 @@ def test_weak_signal_match_is_insufficient_comparison_data_not_guessed(db_sessio
     from app.models.enums import TimelineEventType
 
     event = record_timeline_event(
-        db_session, cluster_id=uuid.uuid4(), document=doc2,
+        db_session, cluster_id=_make_cluster(db_session).id, document=doc2,
         membership_type=IssueMembershipType.DUPLICATE_REPORT, previous_document=doc1,
     )
 
@@ -85,7 +95,7 @@ def test_identical_title_repeat_is_no_substantive_change(db_session):
     from app.models.enums import TimelineEventType
 
     event = record_timeline_event(
-        db_session, cluster_id=uuid.uuid4(), document=doc2,
+        db_session, cluster_id=_make_cluster(db_session).id, document=doc2,
         membership_type=IssueMembershipType.FOLLOW_UP, previous_document=doc1,
     )
 

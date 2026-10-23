@@ -506,6 +506,8 @@ Phase 2-4를 시작하며 기존 OpenAPI 스키마를 점검한 결과, 목록·
 
 CI 성공만으로 "실제 웹사이트의 브라우저 동작이 확인됐다"고 주장하지 않기 위해, 10-4·10-5의 로컬 실제 브라우저 검증(실데이터 255건 기준)을 1차 근거로 삼고 CI는 "Docker/PostgreSQL이 없는 이 개발 환경에서 검증하지 못하는 부분을 보완하는 수단"으로만 사용했다.
 
+**CI가 실제로 찾아낸 PostgreSQL 전용 결함**: 첫 CI 실행에서 `backend-postgres` 잡이 실패했다 — `test_issue_timeline.py`의 4개 테스트와 `test_classification.py` 1개 테스트가 `uuid.uuid4()`로 만든 **존재하지 않는** `cluster_id`/`changed_by_user_id`를 그대로 외래키 값으로 썼는데, SQLite는 기본적으로 외래키 제약을 강제하지 않아(별도 `PRAGMA foreign_keys=ON` 없이는) 지금까지 조용히 통과해 왔다. PostgreSQL은 외래키를 실제로 강제해 `ForeignKeyViolation`으로 즉시 걸러냈다. 프로덕션 코드 경로(`run_clustering_for_document` 등)는 항상 실제로 flush된 클러스터 ID를 쓰므로 버그가 아니라 **테스트 픽스처의 허점**이었고, 테스트가 가짜 UUID 대신 실제 `IssueCluster`/`User` 행을 만들어 쓰도록 고쳤다(로직 자체는 변경 없음). 이것이 바로 "SQLite에서 통과한 테스트가 PostgreSQL에서도 통과하는지 검증"하라는 지시사항이 실제로 의도한 효과다.
+
 ### 10-7. 실제 데이터 정합성
 
 | 항목 | DB 실제값(2026-10-23) | 대시보드 표시값 |

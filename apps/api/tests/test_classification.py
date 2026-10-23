@@ -101,10 +101,12 @@ def test_researcher_override_is_recorded_with_history(db_session, monkeypatch):
     doc = _make_document(db_session, source)
     classification_service.run_classification(db_session, doc, text="cybersecurity encryption", prefer_ai=True)
 
-    import uuid
-    fake_user_id = uuid.uuid4()
+    from app.models.enums import UserRole
+    from tests.conftest import make_user
+
+    reviewer = make_user(db_session, "reviewer-override@example.com", UserRole.REVIEWER)
     updated = classification_service.override_classification(
-        db_session, doc, user_id=fake_user_id, primary_field_code=FieldCode.CONV,
+        db_session, doc, user_id=reviewer.id, primary_field_code=FieldCode.CONV,
         related_field_codes=[], relevance=ClassificationRelevance.MATCHED, reason="연구원 판단: 융합기술이 더 적절함",
     )
 
@@ -121,6 +123,6 @@ def test_researcher_override_is_recorded_with_history(db_session, monkeypatch):
         .all()
     )
     assert len(history_rows) == 2  # 최초 자동분류 1건 + 연구원 수정 1건
-    assert history_rows[-1].changed_by_user_id == fake_user_id
+    assert history_rows[-1].changed_by_user_id == reviewer.id
     assert history_rows[-1].new_primary_field_code == FieldCode.CONV
     assert history_rows[-1].reason == "연구원 판단: 융합기술이 더 적절함"
