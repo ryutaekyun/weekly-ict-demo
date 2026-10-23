@@ -127,6 +127,9 @@ test("시나리오 F — 동시 수정 충돌 감지 및 권한 없는 사용자
   await login(p2, E2E_ADMIN);
   await p2.goto(url);
   await p2.locator(".ProseMirror").waitFor();
+  // 원고 데이터 로드가 끝난 뒤(상태 배지 표시)에 입력해야 느린 환경(CI)에서 입력이 초기화되지 않는다
+  await expect(p2.getByText("초안", { exact: true })).toBeVisible();
+  await expect(p2.locator(".ProseMirror")).toHaveAttribute("contenteditable", "true");
 
   await typeInEditor(p2, "두번째 사용자의 수정");
   await waitSaved(p2);
