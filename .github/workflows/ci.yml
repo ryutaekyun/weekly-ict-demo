@@ -1,0 +1,195 @@
+name: CI
+
+# 로컬 개발환경에 Node.js/Docker/PostgreSQL이 없어 검증하지 못하는 부분(PostgreSQL 통합,
+# Next.js 프로덕션 빌드, 브라우저 E2E)을 이 워크플로가 실제로 실행해 검증한다.
+# apps/web/index.html(공개 데모)은 이 워크플로가 전혀 건드리지 않는다.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  backend-sqlite:
+    name: Backend tests (SQLite)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        working-directory: apps/api
+        run: pip install -r requirements.txt
+      - name: Run pytest
+        working-directory: apps/api
+        env:
+          PYTHONPATH: .
+        run: pytest -q
+
+  backend-postgres:
+    name: Backend tests (PostgreSQL)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: tnp
+          POSTGRES_PASSWORD: tnp_ci_password
+          POSTGRES_DB: tnp_platform_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tnp"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        working-directory: apps/api
+        run: pip install -r requirements.txt
+      - name: Run Alembic migrations against real PostgreSQL
+        working-directory: apps/api
+        env:
+          DATABASE_URL: postgresql+psycopg2://tnp:tnp_ci_password@localhost:5432/tnp_platform_test
+          PYTHONPATH: .
+        run: alembic upgrade head
+      - name: Run full pytest suite against real PostgreSQL
+        working-directory: apps/api
+        env:
+          DATABASE_URL: postgresql+psycopg2://tnp:tnp_ci_password@localhost:5432/tnp_platform_test
+          TEST_DATABASE_URL: postgresql+psycopg2://tnp:tnp_ci_password@localhost:5432/tnp_platform_test
+          PYTHONPATH: .
+        run: pytest -q
+
+  frontend-build:
+    name: Next.js build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: apps/web/package-lock.json
+      - name: npm ci
+        working-directory: apps/web
+        run: npm ci
+      - name: Production build
+        working-directory: apps/web
+        run: npm run build
+
+  e2e-full-stack:
+    name: Full-stack browser E2E (Next.js + FastAPI + PostgreSQL)
+    runs-on: ubuntu-latest
+    needs: [backend-postgres, frontend-build]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: tnp
+          POSTGRES_PASSWORD: tnp_ci_password
+          POSTGRES_DB: tnp_platform_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tnp"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg2://tnp:tnp_ci_password@localhost:5432/tnp_platform_e2e
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: apps/api
+        run: pip install -r requirements.txt
+
+      - name: Apply migrations to PostgreSQL
+        working-directory: apps/api
+        run: alembic upgrade head
+
+      - name: Seed CI fixture data (no external network calls)
+        working-directory: apps/api
+        env:
+          PYTHONPATH: .
+        run: python -m app.seed_ci_fixtures
+
+      - name: Start FastAPI backend
+        working-directory: apps/api
+        env:
+          PYTHONPATH: .
+        run: nohup uvicorn app.main:app --host 127.0.0.1 --port 8000 > ../../api.log 2>&1 &
+
+      - name: Wait for backend /health
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8000/health; then exit 0; fi
+            sleep 1
+          done
+          echo "backend failed to become healthy"; cat api.log; exit 1
+
+      - name: Install frontend dependencies
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: apps/web
+        run: npx playwright install --with-deps chromium
+
+      - name: Production build (frontend)
+        working-directory: apps/web
+        env:
+          NEXT_PUBLIC_API_URL: http://127.0.0.1:8000
+        run: npm run build
+
+      - name: Start Next.js (production)
+        working-directory: apps/web
+        env:
+          NEXT_PUBLIC_API_URL: http://127.0.0.1:8000
+        run: nohup npm run start > ../../web.log 2>&1 &
+
+      - name: Wait for frontend
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:3000/login > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          echo "frontend failed to become healthy"; cat web.log; exit 1
+
+      - name: Run Playwright E2E tests (실제 브라우저)
+        working-directory: apps/web
+        run: npx playwright test
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report/
+          retention-days: 7
+
+      - name: Upload server logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-logs
+          path: |
+            api.log
+            web.log
+          retention-days: 7

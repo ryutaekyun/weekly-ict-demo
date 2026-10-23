@@ -6,9 +6,11 @@ from pydantic import BaseModel, ConfigDict
 from app.models.enums import (
     ClassificationMethod,
     ClassificationRelevance,
+    DocumentType,
     ExtractionMethod,
     ExtractionStatus,
     FieldCode,
+    SourceDocumentStatus,
     UsageValueRating,
     VerificationStatus,
 )
@@ -103,3 +105,34 @@ class DocumentAnalysisOut(BaseModel):
     value_assessment: ValueAssessmentOut | None
     structured_extract: StructuredExtractOut | None
     ai_runs: list[AIAnalysisRunOut] = []
+
+
+class DocumentListItemOut(BaseModel):
+    """목록·상세 화면 공용 — 출처 고정 분야가 아니라 document_classifications.primary_field_code를
+    분야 판정 기준으로 쓴다(Phase 2-4 지시사항)."""
+
+    id: uuid.UUID
+    title: str
+    origin_url: str
+    attachment_url: str | None
+    source_id: uuid.UUID
+    source_name: str
+    source_org_name: str
+    country_code: str | None
+    published_at: datetime | None
+    collected_at: datetime
+    document_type: DocumentType
+    status: SourceDocumentStatus
+    primary_field_code: FieldCode | None
+    relevance: ClassificationRelevance | None
+    classification_method: ClassificationMethod | None
+    value_rating: UsageValueRating | None
+    extraction_status: ExtractionStatus | None
+    issue_cluster_id: uuid.UUID | None
+
+
+class DocumentListOut(BaseModel):
+    items: list[DocumentListItemOut]
+    total: int
+    page: int
+    page_size: int

@@ -2,97 +2,87 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import AppShell from "@/components/AppShell";
+import { listCandidates, UnauthorizedError, type Candidate } from "@/lib/api";
+import { CANDIDATE_STATUS_LABELS, FIELD_LABELS, fmtDateOnly } from "@/lib/labels";
 import { useRouter } from "next/navigation";
-import { apiFetch, logout, UnauthorizedError, type Candidate } from "@/lib/api";
-
-const FIELD_LABELS: Record<string, string> = {
-  soc: "디지털사회혁신",
-  net: "통신·네트워크",
-  bcast: "방송·전파·위성",
-  sw: "SW·자율주행",
-  ai: "인공지능·데이터",
-  content: "콘텐츠·미디어",
-  sec: "보안·블록체인",
-  semi: "반도체·양자",
-  conv: "ICT 융합기술",
-};
-
-const STATUS_LABELS: Record<string, string> = {
-  rec: "추천",
-  review: "검토중",
-  hold: "보류",
-  final: "확정",
-  rejected: "반려",
-};
 
 export default function CandidatesPage() {
   const router = useRouter();
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [fieldCode, setFieldCode] = useState("");
+  const [status, setStatus] = useState("");
+  const [q, setQ] = useState("");
 
   useEffect(() => {
-    apiFetch<Candidate[]>("/candidates")
+    setLoading(true);
+    listCandidates({ field_code: fieldCode || undefined, status: status || undefined, q: q || undefined })
       .then(setCandidates)
       .catch((err) => {
-        if (err instanceof UnauthorizedError) {
-          router.push("/login");
-          return;
-        }
+        if (err instanceof UnauthorizedError) { router.push("/login"); return; }
         setError(err instanceof Error ? err.message : "불러오기 실패");
       })
       .finally(() => setLoading(false));
-  }, [router]);
-
-  async function handleLogout() {
-    await logout();
-    router.push("/login");
-  }
+  }, [fieldCode, status, q, router]);
 
   return (
-    <div style={{ maxWidth: 960, margin: "0 auto", padding: 32 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-        <h1 style={{ fontSize: 20, fontWeight: 700 }}>주간 후보주제 목록</h1>
-        <button className="tbtn" onClick={handleLogout}>
-          로그아웃
-        </button>
-      </div>
-      <p style={{ color: "var(--ink-muted)", fontSize: 13.5 }}>
-        실제 PostgreSQL에 저장된 후보주제 — 새로고침해도 사라지지 않습니다.
+    <AppShell>
+      <h1 style={{ fontSize: 20, fontWeight: 700, marginBottom: 4 }}>후보주제 선정·검토</h1>
+      <p style={{ color: "var(--ink-muted)", fontSize: 13, marginTop: 0 }}>
+        AI/규칙 기반 추천과 기존 후보주제 CRUD를 한 화면에서 다룹니다. 최종 주제 선정은 연구원·PM 승인을 거칩니다.
       </p>
-      {loading && <p>불러오는 중...</p>}
+
+      <div className="panel" style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 14, alignItems: "center" }}>
+        <select value={fieldCode} onChange={(e) => setFieldCode(e.target.value)} style={selectStyle}>
+          <option value="">전체 분야</option>
+          {Object.entries(FIELD_LABELS).map(([c, l]) => <option key={c} value={c}>{l}</option>)}
+        </select>
+        <select value={status} onChange={(e) => setStatus(e.target.value)} style={selectStyle}>
+          <option value="">전체 검토상태</option>
+          {Object.entries(CANDIDATE_STATUS_LABELS).map(([c, l]) => <option key={c} value={c}>{l}</option>)}
+        </select>
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="제목 검색" style={{ ...selectStyle, minWidth: 200 }} />
+        <span style={{ marginLeft: "auto", fontSize: 13, color: "var(--ink-muted)" }}>총 {candidates.length}건</span>
+      </div>
+
       {error && <p style={{ color: "var(--bad)" }}>{error}</p>}
-      <div className="panel" style={{ padding: 0, overflow: "hidden" }}>
+      {loading && <p style={{ color: "var(--ink-muted)" }}>불러오는 중...</p>}
+
+      <div className="panel" style={{ padding: 0, overflow: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13.5 }}>
           <thead>
             <tr style={{ textAlign: "left", background: "var(--panel-2)" }}>
-              <th style={{ padding: "10px 14px" }}>분야</th>
-              <th style={{ padding: "10px 14px" }}>제목</th>
-              <th style={{ padding: "10px 14px" }}>상태</th>
+              <th style={th}>분야</th>
+              <th style={th}>제목</th>
+              <th style={th}>발표일</th>
+              <th style={th}>출처</th>
+              <th style={th}>상태</th>
             </tr>
           </thead>
           <tbody>
             {candidates.map((c) => (
               <tr key={c.id} style={{ borderTop: "1px solid var(--border)" }}>
-                <td style={{ padding: "10px 14px" }}>{FIELD_LABELS[c.field_code] ?? c.field_code}</td>
-                <td style={{ padding: "10px 14px" }}>
-                  <Link href={`/candidates/${c.id}`}>{c.title}</Link>
-                </td>
-                <td style={{ padding: "10px 14px" }}>
-                  <span className={`pill ${c.status}`}>{STATUS_LABELS[c.status] ?? c.status}</span>
+                <td style={td}>{FIELD_LABELS[c.field_code] ?? c.field_code}</td>
+                <td style={td}><Link href={`/candidates/${c.id}`}>{c.title}</Link></td>
+                <td style={td}>{fmtDateOnly(c.announced_date)}</td>
+                <td style={td}>{c.source_org ?? "-"}</td>
+                <td style={td}>
+                  <span className={`pill ${c.status}`}>{CANDIDATE_STATUS_LABELS[c.status] ?? c.status}</span>
                 </td>
               </tr>
             ))}
             {!loading && candidates.length === 0 && (
-              <tr>
-                <td colSpan={3} style={{ padding: 20, textAlign: "center", color: "var(--ink-muted)" }}>
-                  등록된 후보주제가 없습니다
-                </td>
-              </tr>
+              <tr><td colSpan={5} style={{ padding: 20, textAlign: "center", color: "var(--ink-muted)" }}>등록된 후보주제가 없습니다</td></tr>
             )}
           </tbody>
         </table>
       </div>
-    </div>
+    </AppShell>
   );
 }
+
+const selectStyle: React.CSSProperties = { padding: "7px 9px", borderRadius: 8, border: "1px solid var(--border)", fontSize: 13 };
+const th: React.CSSProperties = { padding: "9px 14px" };
+const td: React.CSSProperties = { padding: "9px 14px" };

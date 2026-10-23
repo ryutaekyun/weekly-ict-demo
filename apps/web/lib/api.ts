@@ -47,6 +47,8 @@ export interface Candidate {
   field_code: string;
   title: string;
   summary: string | null;
+  issue_cluster_id: string | null;
+  source_document_id: string | null;
   announced_date: string | null;
   source_org: string | null;
   recommended_reason: string | null;
@@ -65,8 +67,36 @@ export interface CandidateReview {
   created_at: string;
 }
 
+export interface CandidateRecommendationScore {
+  candidate_id: string;
+  issue_cluster_id: string | null;
+  policy_impact_score: number | null;
+  timeliness_score: number | null;
+  domestic_relevance_score: number | null;
+  novelty_score: number | null;
+  analysis_depth_score: number | null;
+  total_score: number | null;
+  weights_snapshot_json: string;
+  reasoning_json: string;
+  duplicate_check_json: string | null;
+  method: string;
+  scored_at: string;
+}
+
 export interface CandidateDetail extends Candidate {
   reviews: CandidateReview[];
+  recommendation_score: CandidateRecommendationScore | null;
+}
+
+export function listCandidates(filters: { field_code?: string; status?: string; q?: string } = {}): Promise<Candidate[]> {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([k, v]) => { if (v) params.set(k, v); });
+  const qs = params.toString();
+  return apiFetch<Candidate[]>(`/candidates${qs ? `?${qs}` : ""}`);
+}
+
+export function updateCandidate(id: string, payload: Partial<{ title: string; summary: string; recommended_reason: string; status: CandidateStatus }>): Promise<Candidate> {
+  return apiFetch<Candidate>(`/candidates/${id}`, { method: "PATCH", body: JSON.stringify(payload) });
 }
 
 export interface CurrentUser {
@@ -76,4 +106,338 @@ export interface CurrentUser {
   role: "researcher" | "reviewer" | "approver" | "admin";
   job_title: string | null;
   is_active: boolean;
+}
+
+export function getCurrentUser(): Promise<CurrentUser> {
+  return apiFetch<CurrentUser>("/auth/me");
+}
+
+// --- 문서(수집자료) --------------------------------------------------------
+
+export interface DocumentListItem {
+  id: string;
+  title: string;
+  origin_url: string;
+  attachment_url: string | null;
+  source_id: string;
+  source_name: string;
+  source_org_name: string;
+  country_code: string | null;
+  published_at: string | null;
+  collected_at: string;
+  document_type: string;
+  status: string;
+  primary_field_code: string | null;
+  relevance: string | null;
+  classification_method: string | null;
+  value_rating: string | null;
+  extraction_status: string | null;
+  issue_cluster_id: string | null;
+}
+
+export interface DocumentListResponse {
+  items: DocumentListItem[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface DocumentFilters {
+  field_code?: string;
+  country_code?: string;
+  document_type?: string;
+  source_id?: string;
+  relevance?: string;
+  value_rating?: string;
+  q?: string;
+  page?: number;
+  page_size?: number;
+}
+
+export function listDocuments(filters: DocumentFilters = {}): Promise<DocumentListResponse> {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== "") params.set(k, String(v));
+  });
+  const qs = params.toString();
+  return apiFetch<DocumentListResponse>(`/documents${qs ? `?${qs}` : ""}`);
+}
+
+export interface ClassificationOut {
+  document_id: string;
+  primary_field_code: string | null;
+  related_field_codes: string[];
+  relevance: string;
+  confidence: number | null;
+  method: string;
+  reasoning: string | null;
+  is_researcher_overridden: boolean;
+  classified_at: string;
+}
+
+export interface FullTextOut {
+  document_id: string;
+  extraction_status: string;
+  extraction_method: string;
+  char_count: number;
+  source_location: string | null;
+  content_changed: boolean;
+  failure_reason: string | null;
+  extracted_at: string;
+  full_text: string | null;
+}
+
+export interface ValueAssessmentOut {
+  document_id: string;
+  rating: string;
+  reasoning: string | null;
+  evidence_quote: string | null;
+  method: string;
+  is_researcher_overridden: boolean;
+  recency_bucket: string | null;
+}
+
+export interface StructuredExtractOut {
+  document_id: string;
+  key_content: string | null;
+  background_purpose: string | null;
+  policy_tech_change: string | null;
+  contested_points: string | null;
+  expected_impact_facts: string | null;
+  expected_impact_ai_analysis: string | null;
+  open_questions: string | null;
+  verification_status: string;
+  generated_by: string;
+}
+
+export interface DocumentAnalysis {
+  document_id: string;
+  classification: ClassificationOut | null;
+  full_text: FullTextOut | null;
+  value_assessment: ValueAssessmentOut | null;
+  structured_extract: StructuredExtractOut | null;
+  ai_runs: unknown[];
+}
+
+export function getDocumentMeta(id: string): Promise<DocumentListItem> {
+  return apiFetch<DocumentListItem>(`/documents/${id}`);
+}
+
+export function getDocumentAnalysis(id: string): Promise<DocumentAnalysis> {
+  return apiFetch<DocumentAnalysis>(`/documents/${id}/analysis`);
+}
+
+export function getDocumentFullText(id: string): Promise<FullTextOut> {
+  return apiFetch<FullTextOut>(`/documents/${id}/full-text`);
+}
+
+export function overrideClassification(
+  id: string,
+  payload: { primary_field_code: string | null; related_field_codes: string[]; relevance: string; reason?: string }
+): Promise<ClassificationOut> {
+  return apiFetch<ClassificationOut>(`/documents/${id}/classification`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function overrideValueAssessment(
+  id: string,
+  payload: { rating: string; reason?: string }
+): Promise<ValueAssessmentOut> {
+  return apiFetch<ValueAssessmentOut>(`/documents/${id}/value-assessment`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+// --- 이슈 클러스터 -----------------------------------------------------------
+
+export interface IssueClusterOut {
+  id: string;
+  title: string;
+  field_code: string;
+  first_seen_at: string;
+  last_activity_at: string | null;
+  status: string;
+  summary: string | null;
+  review_status: string;
+  created_by_method: string | null;
+  document_count: number;
+}
+
+export interface IssueMemberDocument {
+  document_id: string;
+  title: string;
+  origin_url: string;
+  published_at: string | null;
+  membership_type: string;
+  similarity_score: number | null;
+  judgment_reasoning: string | null;
+}
+
+export interface IssueTimelineEventOut {
+  id: string;
+  document_id: string;
+  compared_to_document_id: string | null;
+  event_type: string;
+  event_date: string | null;
+  event_date_label: string | null;
+  description: string | null;
+}
+
+export interface IssueAnalysisOut {
+  issue_cluster_id: string;
+  key_summary: string | null;
+  background_purpose: string | null;
+  policy_tech_change: string | null;
+  key_figures_json: string | null;
+  technical_issues_json: string | null;
+  policy_issues_json: string | null;
+  industry_concerns_json: string | null;
+  unconfirmed_points_json: string | null;
+  country_positions_json: string | null;
+  domestic_industry_relevance: string | null;
+  domestic_rnd_impact: string | null;
+  domestic_policy_considerations: string | null;
+  domestic_monitoring_points: string | null;
+  domestic_has_sufficient_basis: boolean;
+  dispute_status: string;
+  source_citations_json: string | null;
+  verification_status: string;
+  generated_by: string;
+}
+
+export interface IssueDisputePointOut {
+  id: string;
+  dispute_title: string;
+  claim_a_text: string;
+  claim_a_stakeholder: string | null;
+  claim_a_source_document_id: string | null;
+  claim_b_text: string;
+  claim_b_stakeholder: string | null;
+  claim_b_source_document_id: string | null;
+  common_ground: string | null;
+  differences: string | null;
+  unresolved_notes: string | null;
+  method: string;
+}
+
+export interface IssueDetail {
+  cluster: IssueClusterOut;
+  members: IssueMemberDocument[];
+  timeline: IssueTimelineEventOut[];
+  analysis: IssueAnalysisOut | null;
+  disputes: IssueDisputePointOut[];
+}
+
+export interface IssueFilters {
+  field_code?: string;
+  published_after?: string;
+  published_before?: string;
+}
+
+export function listIssues(filters: IssueFilters = {}): Promise<IssueClusterOut[]> {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([k, v]) => {
+    if (v) params.set(k, v);
+  });
+  const qs = params.toString();
+  return apiFetch<IssueClusterOut[]>(`/issues${qs ? `?${qs}` : ""}`);
+}
+
+export function getIssueDetail(id: string): Promise<IssueDetail> {
+  return apiFetch<IssueDetail>(`/issues/${id}`);
+}
+
+export function mergeIssueCluster(id: string, targetClusterId: string, reason?: string): Promise<IssueClusterOut> {
+  return apiFetch<IssueClusterOut>(`/issues/${id}/merge`, {
+    method: "PATCH",
+    body: JSON.stringify({ target_cluster_id: targetClusterId, reason }),
+  });
+}
+
+// --- 출처·수집 --------------------------------------------------------------
+
+export interface SourceOut {
+  id: string;
+  name: string;
+  org_name: string;
+  field_code: string;
+  country_code: string | null;
+  url: string;
+  source_type: string;
+  api_provider: string | null;
+  is_primary_source: boolean;
+  reliability_tier: number;
+  is_active: boolean;
+  needs_review: boolean;
+  consecutive_failures: number;
+  last_attempted_at: string | null;
+  last_successful_collection_at: string | null;
+  created_at: string;
+}
+
+export interface CollectionRunOut {
+  id: string;
+  source_id: string;
+  started_at: string;
+  finished_at: string | null;
+  status: string;
+  items_found: number;
+  items_new: number;
+  items_duplicate: number;
+  items_updated: number;
+  error_message: string | null;
+  error_type: string | null;
+  retry_count: number;
+}
+
+export function listSources(filters: { field_code?: string; needs_review?: boolean } = {}): Promise<SourceOut[]> {
+  const params = new URLSearchParams();
+  if (filters.field_code) params.set("field_code", filters.field_code);
+  if (filters.needs_review !== undefined) params.set("needs_review", String(filters.needs_review));
+  const qs = params.toString();
+  return apiFetch<SourceOut[]>(`/sources${qs ? `?${qs}` : ""}`);
+}
+
+export function listSourceRuns(sourceId: string): Promise<CollectionRunOut[]> {
+  return apiFetch<CollectionRunOut[]>(`/sources/${sourceId}/runs`);
+}
+
+export function triggerCollection(sourceId: string): Promise<CollectionRunOut> {
+  return apiFetch<CollectionRunOut>(`/sources/${sourceId}/collect`, { method: "POST" });
+}
+
+// --- 대시보드 ---------------------------------------------------------------
+
+export interface DashboardSummary {
+  total_documents: number;
+  matched_documents: number;
+  low_relevance_documents: number;
+  pending_review_documents: number;
+  unclassified_documents: number;
+  by_field: { field_code: string; document_count: number }[];
+  extraction_success: number;
+  extraction_summary_only: number;
+  extraction_partial: number;
+  extraction_failed: number;
+  extraction_not_attempted: number;
+  issue_cluster_total: number;
+  issue_cluster_confirmed: number;
+  issue_cluster_needs_review: number;
+  issue_cluster_multi_document: number;
+  candidate_total: number;
+  candidate_by_status: Record<string, number>;
+  domestic_relevance_assessed: number;
+  domestic_relevance_pending: number;
+  source_total: number;
+  source_active: number;
+  source_needs_review: number;
+  recent_activity: { document_id: string; title: string; event: string; occurred_at: string }[];
+  generated_at: string;
+}
+
+export function getDashboardSummary(): Promise<DashboardSummary> {
+  return apiFetch<DashboardSummary>("/dashboard/summary");
 }

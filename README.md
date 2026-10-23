@@ -15,14 +15,14 @@
 | 인증 보안(httpOnly 쿠키, CSRF, 로그인 잠금, 비밀번호 변경) | **구현·테스트 완료** — 쿠키/CSRF/계정잠금/비밀번호변경 각각 자동 테스트로 확인(아래 "보안 관련 알려진 사항" 참고) |
 | PostgreSQL 스키마(14개 테이블 + 로그인 잠금·출처/문서 메타데이터 확장) + Alembic 마이그레이션 3건 | **구현 완료** — SQLite로 실제 `alembic upgrade head` 성공 확인(Postgres 자체는 이 작업 환경에 설치되어 있지 않아 미설치 상태로 검증) |
 | 로컬 개발용 더미 계정 시드 | **구현·실행 완료** — 전부 가상 인물, 비밀번호는 실행마다 무작위 생성 |
-| Next.js 프런트(로그인 + 후보주제 목록/상세/의견작성) | **코드 작성 완료, 실행·빌드 미검증** — 이 작업 환경에 Node.js/npm이 설치되어 있지 않아 `npm install`/`npm run dev`를 돌려보지 못했다 |
-| Docker Compose(db+api+web) | **설정 파일 작성 완료, 미검증** — 이 작업 환경에 Docker가 설치되어 있지 않다 |
+| Next.js 실제 운영 웹사이트(대시보드·ICT정보수집·핵심이슈분석·후보주제·출처관리·설정, 7개 메뉴) | **구현·빌드·실행·브라우저 검증 완료** — winget으로 Node.js(LTS v24.20.0)를 직접 설치해 `npm run build`/`npm run dev` 실행, 실데이터(255건) 기준 로그인·조회·수정·저장·새로고침 후 반영·서버 재시작 후 데이터 유지·권한 차단까지 전부 실제 브라우저로 확인. Playwright E2E 6건(시나리오 A~F) 전부 통과. 상세는 `docs/PLATFORM_PLAN.md` §10 참고 |
+| Docker Compose(db+api+web) | **설정 파일 작성 완료, 로컬 미설치로 실행 미검증** — 이 작업 환경에 Docker가 설치되어 있지 않다. PostgreSQL 통합 자체는 GitHub Actions CI(`postgres:16-alpine` 서비스 컨테이너)에서 Alembic 마이그레이션+전체 테스트로 검증했다 |
 | 다방식(RSS+API) 수집 엔진 — ICT 9대 분야 전체 | **구현·실행 완료 — 9대 분야 전부 최소 1곳(총 10개 출처)에서 실시간 수집 성공 확인**, 255건 실제 DB 저장·재수집 중복방지·404 오류분류까지 라이브 검증. 상세는 `docs/PLATFORM_PLAN.md` §7 참고 |
 | 문서별 원문 전문 추출(HTML+PDF) + ICT 분야 자동분류(출처 고정분야와 분리) + 실무 활용가치 판정 + 핵심내용 구조화 + AI 연동(공급자 미설정 시 규칙기반 폴백) | **구현·실행 완료 — 기존 255건 전체 재처리, 전문추출 215건 성공, 35건이 출처 고정분야와 다르게 재분류됨(Phase 2-1 결함 수정 확인)**. 실데이터 검증 중 발견한 실제 결함 3건(단위 오매칭, 기술표준 오분류, PDF 핵심내용 추출 오류)도 전부 수정. AI는 키 미보유로 실호출 미검증(규칙 기반으로만 동작 확인). 상세는 `docs/PLATFORM_PLAN.md` §8 참고 |
 | 동일 이슈 자동 통합(RIN/Docket 강한신호+제목유사도 약한신호) + 신규·후속변화 타임라인 + 쟁점·논쟁 분석 + 후보주제 가중점수 추천 | **구현·실행 완료 — 161건 실데이터로 143개 이슈 클러스터 생성(복수문서 통합 13건), 142건 후보주제 추천**. 실데이터 검증 중 발견한 실제 결함 7건(세션 flush 문제, 분야오분류로 인한 클러스터링 실패, 관용구 오탐, 허브문서 자동확정 등) 전부 수정. 국가비교·국내산업연관성은 근거 없이 임의 작성하지 않고 142건 전부 정직하게 "평가보류" 처리. AI는 Phase 2-2와 동일하게 키 미보유로 실호출 미검증. 상세는 `docs/PLATFORM_PLAN.md` §9 참고 |
-| HTML 파싱 수집기(Federal Register 외), 분야별 2곳 이상 확보, 실제 AI 모델 호출, 연구원이 분석 결과를 보는 웹 화면, 원고·발간 워크플로, 실제 메일 발송 | **미구현** (Phase 2-4~3, `docs/PLATFORM_PLAN.md`의 로드맵 참고) |
+| HTML 파싱 수집기(Federal Register 외), 분야별 2곳 이상 확보, 실제 AI 모델 호출, 원고·발간 워크플로, 실제 메일 발송 | **미구현** (Phase 3, `docs/PLATFORM_PLAN.md`의 로드맵 참고) |
 
-**직접 실행해서 확인해야 하는 것: Next.js 빌드/구동과 Docker Compose 전체 스택.** 아래 절차대로 진행하고, 안 되는 부분이 있으면 알려달라.
+**Next.js 빌드/구동은 Phase 2-4에서 실제로 검증 완료**(winget으로 Node.js를 직접 설치해 빌드·실행·브라우저 테스트까지 수행, `docs/PLATFORM_PLAN.md` §10 참고). **Docker Compose 전체 스택만 사용자 환경에서 처음 실행·검증이 필요**하다(PostgreSQL 통합 자체는 GitHub Actions CI로 검증됨).
 
 ## 백엔드 단독 실행 (이미 이 환경에서 검증됨)
 
@@ -49,7 +49,7 @@ cd apps/api
 PYTHONPATH=. pytest -v
 ```
 
-마지막 실행 결과: **89 passed**. 테스트는 SQLite 인메모리 DB를 사용한다(운영은 Postgres). 수집 엔진 테스트는 네트워크 호출을 모킹해 로직(신규/중복/개정판/실패/반복실패시 needs_review)만 검증하고, 인증 보안 테스트는 쿠키·CSRF·계정잠금·비밀번호변경을 각각 확인한다. Phase 2-2 분류·전문추출·가치판정·구조화·AI연동 테스트는 `tests/test_classification.py`, `test_extraction.py`, `test_value_assessment.py`, `test_structured_extract.py`, `test_ai_service.py`, `test_documents_api.py` 참고. Phase 2-3 이슈통합·타임라인·쟁점분석·후보추천 테스트는 `tests/test_issue_clustering.py`, `test_issue_timeline.py`, `test_issue_analysis.py`, `test_candidate_recommendation.py`, `test_issues_api.py` 참고. 실제 네트워크를 통한 라이브 검증 결과는 `docs/PLATFORM_PLAN.md` §7-2, §8-3·8-4, §9-3·9-4 참고.
+마지막 실행 결과: **97 passed**. 테스트는 기본적으로 SQLite 인메모리 DB를 사용하지만, `TEST_DATABASE_URL` 환경변수를 PostgreSQL 접속 문자열로 지정하면 동일한 스위트가 그대로 PostgreSQL에서도 통과한다(GitHub Actions CI `backend-postgres` 잡이 매번 이렇게 실행한다). 수집 엔진 테스트는 네트워크 호출을 모킹해 로직(신규/중복/개정판/실패/반복실패시 needs_review)만 검증하고, 인증 보안 테스트는 쿠키·CSRF·계정잠금·비밀번호변경을 각각 확인한다. Phase 2-2 분류·전문추출·가치판정·구조화·AI연동 테스트는 `tests/test_classification.py`, `test_extraction.py`, `test_value_assessment.py`, `test_structured_extract.py`, `test_ai_service.py`, `test_documents_api.py` 참고. Phase 2-3 이슈통합·타임라인·쟁점분석·후보추천 테스트는 `tests/test_issue_clustering.py`, `test_issue_timeline.py`, `test_issue_analysis.py`, `test_candidate_recommendation.py`, `test_issues_api.py` 참고. Phase 2-4 문서목록·대시보드·후보점수 테스트는 `tests/test_documents_list_and_dashboard.py`, `test_candidate_detail_score.py` 참고. 실제 네트워크를 통한 라이브 검증 결과는 `docs/PLATFORM_PLAN.md` §7-2, §8-3·8-4, §9-3·9-4 참고.
 
 ### 출처 수집 실행
 
@@ -94,15 +94,33 @@ docker compose -f infra/docker-compose.yml up --build
 docker compose -f infra/docker-compose.yml exec api python -m app.seed
 ```
 
-## 프런트엔드 단독 실행 — 사용자 환경에서 처음 실행·검증 필요
+## 프런트엔드 단독 실행 (Phase 2-4에서 실제 빌드·실행·브라우저 검증 완료)
 
 ```bash
 cd apps/web
 npm install
-npm run dev
+npm run dev     # http://localhost:3000, 백엔드가 http://localhost:8000에서 떠 있어야 함
+npm run build   # 프로덕션 빌드 — Phase 2-4에서 실제 성공 확인(Next.js 16.4.2)
 ```
 
 `NEXT_PUBLIC_API_URL`(기본 `http://localhost:8000`)을 바꾸려면 `.env.local`에 설정.
+
+### 브라우저 E2E 테스트(Playwright)
+
+```bash
+cd apps/api
+python -m app.seed_e2e_test_user   # 고정 비밀번호 테스트 계정 생성(E2E 전용, 운영 계정 아님)
+
+cd ../web
+npx playwright install chromium
+npm run test:e2e   # 백엔드(8000)·프런트엔드(3000)가 모두 떠 있어야 함
+```
+
+`apps/web/e2e/`의 6개 테스트가 Phase 2-4 지시문의 시나리오 A~F(정보조사/이슈분석/후보선정/분류수정/출처관리/권한검증)를 그대로 코드화한 것이다. GitHub Actions `e2e-full-stack` 잡은 PostgreSQL+합성 데이터로 동일한 테스트를 매 푸시마다 실행한다.
+
+## CI (GitHub Actions)
+
+`.github/workflows/ci.yml`이 매 push·PR마다 4개 잡을 실행한다: `backend-sqlite`(기존 pytest), `backend-postgres`(PostgreSQL 서비스 컨테이너+Alembic 마이그레이션+동일 pytest 재실행), `frontend-build`(Next.js 프로덕션 빌드), `e2e-full-stack`(PostgreSQL+합성 데이터+실제 FastAPI·Next.js 기동+Playwright 브라우저 테스트). 이 작업 환경에 Docker/PostgreSQL이 없어 로컬에서 못 하는 통합검증을 이 CI가 대신한다 — 단, CI 통과가 "로컬 환경에서도 실행 가능"을 의미하지는 않는다(Docker Compose는 여전히 사용자 환경에서 처음 실행·검증이 필요).
 
 ## 운영 계정 만들기
 

@@ -1,3 +1,5 @@
+import os
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -10,17 +12,22 @@ from app.main import app
 from app.models.enums import UserRole
 from app.models.user import User
 
-TEST_DATABASE_URL = "sqlite:///:memory:"
+# 기본은 SQLite 인메모리(빠른 로컬 실행). CI에서 TEST_DATABASE_URL을 실제 PostgreSQL로
+# 지정하면 동일한 테스트 스위트가 PostgreSQL에서도 통과하는지 그대로 검증할 수 있다
+# (Phase 2-4 지시사항 — "기존 SQLite 테스트가 PostgreSQL에서도 동작하는지 검증").
+TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "sqlite:///:memory:")
+_is_sqlite = TEST_DATABASE_URL.startswith("sqlite")
 
 
 @pytest.fixture()
 def db_session():
     engine = create_engine(
         TEST_DATABASE_URL,
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
+        connect_args={"check_same_thread": False} if _is_sqlite else {},
+        poolclass=StaticPool if _is_sqlite else None,
     )
     TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.drop_all(bind=engine)  # PostgreSQL은 테스트 간 상태가 남으므로 매번 깨끗하게 시작한다
     Base.metadata.create_all(bind=engine)
     session = TestingSessionLocal()
     try:
@@ -28,6 +35,7 @@ def db_session():
     finally:
         session.close()
         Base.metadata.drop_all(bind=engine)
+        engine.dispose()
 
 
 @pytest.fixture()

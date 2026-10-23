@@ -9,12 +9,14 @@ from app.core.db import get_db
 from app.core.deps import get_current_user
 from app.models.candidate import Candidate
 from app.models.candidate_review import CandidateReview
+from app.models.candidate_scoring import CandidateRecommendationScore
 from app.models.enums import CandidateStatus, FieldCode, UserRole
 from app.models.user import User
 from app.schemas.candidate import (
     CandidateCreate,
     CandidateDetailOut,
     CandidateOut,
+    CandidateRecommendationScoreOut,
     CandidateReviewCreate,
     CandidateReviewOut,
     CandidateUpdate,
@@ -79,7 +81,12 @@ def get_candidate(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    return _get_candidate_or_404(db, candidate_id)
+    candidate = _get_candidate_or_404(db, candidate_id)
+    score = db.query(CandidateRecommendationScore).filter_by(candidate_id=candidate_id).one_or_none()
+    data = CandidateOut.model_validate(candidate).model_dump()
+    data["reviews"] = [CandidateReviewOut.model_validate(r) for r in candidate.reviews]
+    data["recommendation_score"] = CandidateRecommendationScoreOut.model_validate(score) if score else None
+    return CandidateDetailOut(**data)
 
 
 @router.patch("/{candidate_id}", response_model=CandidateOut)

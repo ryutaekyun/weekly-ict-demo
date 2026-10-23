@@ -3,7 +3,7 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict
 
-from app.models.enums import CandidateStatus, FieldCode
+from app.models.enums import CandidateStatus, ClassificationMethod, FieldCode
 
 
 class CandidateCreate(BaseModel):
@@ -49,6 +49,8 @@ class CandidateOut(BaseModel):
     field_code: FieldCode
     title: str
     summary: str | None
+    issue_cluster_id: uuid.UUID | None = None
+    source_document_id: uuid.UUID | None = None
     announced_date: date | None
     source_org: str | None
     recommended_reason: str | None
@@ -58,5 +60,24 @@ class CandidateOut(BaseModel):
     updated_at: datetime
 
 
+class CandidateRecommendationScoreOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    candidate_id: uuid.UUID
+    issue_cluster_id: uuid.UUID | None
+    policy_impact_score: float | None
+    timeliness_score: float | None
+    domestic_relevance_score: float | None
+    novelty_score: float | None
+    analysis_depth_score: float | None
+    total_score: float | None
+    weights_snapshot_json: str
+    reasoning_json: str
+    duplicate_check_json: str | None
+    method: ClassificationMethod
+    scored_at: datetime
+
+
 class CandidateDetailOut(CandidateOut):
     reviews: list[CandidateReviewOut] = []
+    recommendation_score: CandidateRecommendationScoreOut | None = None

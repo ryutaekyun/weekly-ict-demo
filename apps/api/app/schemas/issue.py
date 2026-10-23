@@ -57,24 +57,41 @@ class IssueDisputePointOut(BaseModel):
     id: uuid.UUID
     dispute_title: str
     claim_a_text: str
+    claim_a_stakeholder: str | None
     claim_a_source_document_id: uuid.UUID | None
     claim_b_text: str
+    claim_b_stakeholder: str | None
     claim_b_source_document_id: uuid.UUID | None
     common_ground: str | None
     differences: str | None
     unresolved_notes: str | None
+    method: ClassificationMethod
 
 
 class IssueAnalysisOut(BaseModel):
+    """화면에서 '규칙 기반 자동분석'과 '연구원 확인 완료'를 구분해 보여줄 수 있도록
+    저장된 세부 항목(JSON 포함)을 그대로 내려준다 — 요약 필드만 노출하면 핵심쟁점·국가비교·
+    국내시사점 세부항목을 화면에 표시할 수 없어 Phase 2-4 지시사항을 충족하지 못한다."""
+
     model_config = ConfigDict(from_attributes=True)
 
     issue_cluster_id: uuid.UUID
     key_summary: str | None
     background_purpose: str | None
     policy_tech_change: str | None
+    key_figures_json: str | None
+    technical_issues_json: str | None
+    policy_issues_json: str | None
+    industry_concerns_json: str | None
+    unconfirmed_points_json: str | None
+    country_positions_json: str | None
     domestic_industry_relevance: str | None
+    domestic_rnd_impact: str | None
+    domestic_policy_considerations: str | None
+    domestic_monitoring_points: str | None
     domestic_has_sufficient_basis: bool
     dispute_status: DisputeAnalysisStatus
+    source_citations_json: str | None
     verification_status: VerificationStatus
     generated_by: ClassificationMethod
 

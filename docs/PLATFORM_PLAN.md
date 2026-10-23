@@ -431,3 +431,109 @@ Phase 2-2와 동일하게 이 환경에는 AI API 키가 없어 **실제 AI 모�
 - **회귀 없음**: 기존 Phase 2-1·2-2 API/테스트 전부 그대로 통과
 - **미구현/미검증**: 실제 AI 모델 호출(키 미보유), 연구원이 이슈·후보주제를 보는 웹 화면(Phase 2-4), 이슈 병합·분리 API는 구현했으나 대량 실사용 시나리오는 미검증
 - **다음 단계 필요사항**: 허브문서(식별자 2개 이상 걸리는 경우)의 자동 분리 제안 기능, 비영어·비미국 출처 확보 시 실제 국가비교 분석 재검증, AI 키 확보 시 쟁점 카테고리화·논쟁 양측 주장 생성 기능의 실제 품질 검증
+
+## 10. Phase 2-4 — 실제 웹사이트 구현 및 백엔드 통합·운영환경 검증 (2026-10-23)
+
+이전 단계까지는 수집·분류·이슈통합·후보추천이 전부 백엔드(API+스크립트)에서만 동작했고, 연구원이 쓸 웹 화면과 Node.js/PostgreSQL/Docker 실행 환경 자체가 이 작업 환경에 없어 검증하지 못한 상태였다. 이번 단계에서 먼저 **winget으로 Node.js(LTS v24.20.0)를 이 환경에 직접 설치**했고, 그 위에서 Next.js 웹사이트를 실제로 빌드·실행하고 실제 PostgreSQL/Docker 통합은 GitHub Actions CI로 검증했다. "코드 작성 완료"와 "실제 실행 검증"을 구분해 아래에 정리한다.
+
+### 10-1. 환경 제약과 해결
+
+- 이 작업 환경에는 Node.js/npm/Docker/PostgreSQL이 전혀 설치돼 있지 않았다(전부 `command not found`로 직접 확인). Docker Desktop은 Windows에서 WSL2·관리자 권한이 필요해 설치 부담이 크다고 판단해 보류했다.
+- `winget install --id OpenJS.NodeJS.LTS -e --scope user`로 Node.js v24.20.0/npm 11.19.0을 사용자 권한으로 설치 성공(관리자 승인·시스템 설정 변경 없음). 이후 Next.js 빌드·실행·브라우저 E2E 테스트까지 전부 이 Node.js로 직접 실행했다.
+- PostgreSQL/Docker는 로컬에 설치하지 않고, GitHub Actions의 `postgres:16-alpine` 서비스 컨테이너에서 실제로 기동해 Alembic 마이그레이션과 전체 pytest 스위트를 돌리는 방식으로 검증했다(`.github/workflows/ci.yml`, 10-6 참고).
+
+### 10-2. Next.js 웹사이트 구현
+
+`apps/web`을 기존 스켈레톤(로그인+후보주제 목록/상세)에서 7개 메뉴를 가진 실제 운영 웹사이트로 확장했다. 공개 데모(`index.html`)의 네이비·화이트 디자인 토큰(`--navy`, `--panel`, `.pill`, `.tbtn` 등)을 그대로 재사용하되, 정적 HTML이 아니라 실제 API를 호출하는 React 컴포넌트로 새로 짰다.
+
+- **Next.js 14.2.15 → 16.4.2로 업그레이드**: 설치 직후 `npm audit`에서 Next 14 계열 전체에 해당하는 critical/high 취약점(Windows 원격코드실행 등 다수)이 확인돼, 아직 실행 검증 전이었던 만큼 최신 버전으로 바로 올렸다(React/React-DOM도 19.3.1로 동반 업그레이드). `npm audit` 결과 0 vulnerabilities.
+- **신규 화면**: `/dashboard`(통합 대시보드), `/documents`·`/documents/[id]`(ICT 정보 수집 목록·상세), `/issues`·`/issues/[id]`(핵심 이슈 분석 목록·상세), `/sources`(출처·수집 관리), `/settings`(계정·비밀번호 변경). 기존 `/candidates`·`/candidates/[id]`는 필터·점수표·상태변경 기능을 추가해 확장.
+- **공용 셸**(`components/AppShell.tsx`): 사이드바 7개 메뉴(보고서 집필·카드뉴스는 "추후 개발"로 비활성 표시) + 상단 검색창 + 로그인 세션 확인(`/auth/me` 401 시 `/login?next=` 리다이렉트) + 로그아웃.
+- 날짜는 전부 `Asia/Seoul` 기준 `toLocaleString("ko-KR", {timeZone:"Asia/Seoul"})`로 표시하고, 공개 데모의 2027년 가상 날짜는 가져오지 않았다.
+
+### 10-3. 백엔드 API 보강(프런트엔드가 필요로 했으나 없던 것)
+
+Phase 2-4를 시작하며 기존 OpenAPI 스키마를 점검한 결과, 목록·대시보드 화면에 필요한 핵심 엔드포인트 2종이 아예 없었다 — "화면만 만들고 백엔드는 그대로 둔다"가 아니라 실제로 빠진 부분을 찾아 추가했다.
+
+| 신규 엔드포인트 | 내용 |
+|---|---|
+| `GET /documents` | 전체 수집자료 검색·필터(분야·국가·자료유형·출처·검토상태·키워드)·서버측 페이지네이션. 분야 필터는 `SourceDocument.field_code`(출처 고정분야)가 아니라 `document_classifications.primary_field_code`를 기준으로 함(지시사항 준수) |
+| `GET /documents/{id}` | 목록과 동일한 형태의 단건 메타데이터(상세화면 헤더용) |
+| `GET /dashboard/summary` | 대시보드에 필요한 모든 집계(분야별 건수, 추출상태, 이슈·후보 현황 등)를 매 호출마다 실시간 DB 조회로 계산 — 숫자를 프런트엔드에 하드코딩하지 않음 |
+| `GET /dashboard/sources-status` | 출처별 최근 수집 성공/실패 현황 |
+
+그 외에도 `CandidateDetailOut`에 `recommendation_score`(가중점수·근거·평가보류 항목)가 빠져 있어 추가했고, `IssueAnalysisOut`/`IssueDisputePointOut` 스키마가 저장된 세부 JSON 필드(핵심쟁점 카테고리·국가비교·국내 R&D영향 등) 대부분을 응답에서 누락하고 있어 화면이 요구하는 수준으로 전부 노출하도록 넓혔다. 신규/확장 API 전부에 대해 `tests/test_documents_list_and_dashboard.py`(6건)·`tests/test_candidate_detail_score.py`(2건) 회귀 테스트를 추가했다.
+
+### 10-4. 실제 실행·브라우저 검증 (로컬, SQLite 백엔드 `dev.db`)
+
+기존 실데이터(255건 수집, 161건 매칭, 143개 이슈 클러스터, 142건 후보주제)가 들어있는 로컬 `dev.db`를 그대로 띄워 실제 브라우저(Claude 내장 브라우저)로 검증했다. 가상 더미 계정(`dev-admin@example.com` 등, `app.seed`로 생성)의 비밀번호를 로컬 테스트용으로 재설정해 로그인했다 — 운영 계정이 아니며 GitHub에는 올리지 않았다.
+
+| 화면 | 실제 API 연결 | DB 조회 | 수정·저장 | 브라우저 검증 | 비고 |
+|---|---|---|---|---|---|
+| 로그인/로그아웃 | ✅ | ✅ | - | ✅ | httpOnly 쿠키, 세션 유지 확인 |
+| 통합 대시보드 | ✅ | ✅ | - | ✅ | 255/161/143/142 등 실제 DB 수치와 화면 수치 일치 확인 |
+| ICT 정보 수집(목록) | ✅ | ✅ | - | ✅ | 분야 필터·페이지네이션(255건, 13페이지) 확인 |
+| ICT 정보 수집(상세) | ✅ | ✅ | ✅ | ✅ | 분류·실무활용성 수정 → 저장 → **새로고침 후 "연구원 수정됨" 반영 확인**(실제 DB write) |
+| 핵심 이슈 분석(목록·상세) | ✅ | ✅ | - | ✅ | 타임라인·쟁점·국가비교·국내연관성 "평가보류" 정상 표시 확인 |
+| 후보주제 선정·검토 | ✅ | ✅ | ✅ | ✅ | 가중점수(부분평가점수 포함) 표시, 검토의견 등록 → **새로고침 후 재확인**(실제 DB write) |
+| 출처·수집 관리 | ✅ | ✅ | ✅ | ✅ | "수동 수집 실행" 버튼으로 arXiv에 실제 네트워크 호출 — 신규 0·중복 50건 수집 확인 |
+| 사용자 및 운영 설정 | ✅ | ✅ | ✅ | 코드 작성 완료, 비밀번호 변경 폼은 브라우저 미실행 | 계정정보 조회는 검증, 변경 자체는 미실행 |
+
+- **권한 검증**: `dev-researcher-1@example.com`(연구원)으로 로그인해 분류수정을 시도하면 FastAPI가 서버 측에서 403을 반환하고 화면에 "이 작업은 admin, approver, reviewer 권한이 필요합니다"가 표시됨을 확인 — 프런트 버튼 숨김이 아니라 **백엔드가 실제로 권한을 강제**한다. 같은 연구원 계정으로 후보주제 검토의견 등록(허용된 작업)은 정상 동작.
+- **서버 재시작 후 데이터 유지**: FastAPI 프로세스를 종료 후 재기동, 대시보드를 새로고침해 동일한 수치(255/161/143/142)가 그대로 유지됨을 확인.
+
+### 10-5. 실제 브라우저 E2E 테스트(Playwright)
+
+`apps/web/e2e/`에 Playwright 테스트 6건을 작성해 지시문의 시나리오 A~F를 코드화했고, 로컬에서 실제 Chromium으로 전부 통과시켰다(`npx playwright test`, 6 passed / 16.2초). CI에서는 처음 보는 데이터셋에도 돌아가도록 하드코딩된 UUID 대신 화면에서 실시간으로 찾은 항목을 클릭하는 방식으로 작성했다.
+
+| 시나리오 | 파일 | 결과 |
+|---|---|---|
+| A. ICT 정보 조사 | `scenario-a-document-browse.spec.ts` | ✅ pass |
+| B. 이슈 분석(복수문서) | `scenario-b-issue-analysis.spec.ts` | ✅ pass |
+| C. 후보 선정(의견 작성→저장→재확인) | `scenario-c-candidate-review.spec.ts` | ✅ pass |
+| D. 분류 수정(저장→새로고침 반영) | `scenario-d-classification-edit.spec.ts` | ✅ pass |
+| E. 출처 관리(실제 수동 수집) | `scenario-e-source-management.spec.ts` | ✅ pass |
+| F. 권한 검증(연구원 차단/관리자 허용) | `scenario-f-permissions.spec.ts` | ✅ pass |
+
+### 10-6. PostgreSQL·Docker 통합 — GitHub Actions CI로 검증
+
+로컬에 PostgreSQL/Docker가 없어 `docker compose up`은 이번에도 실행하지 못했다. 대신 `.github/workflows/ci.yml`을 새로 만들어 GitHub가 제공하는 Ubuntu 실행환경에서 다음을 **실제로** 실행하도록 구성했다(코드만 작성한 것이 아니라 이 PR의 커밋·푸시 이후 Actions 탭에서 실행 결과를 직접 확인함 — 아래 10-7 참고):
+
+- `backend-sqlite`: 기존 pytest 전체(97건, SQLite)
+- `backend-postgres`: `postgres:16-alpine` 서비스 컨테이너 기동 → `alembic upgrade head`로 실제 PostgreSQL에 전체 스키마 마이그레이션 적용 → 동일 pytest 스위트 97건을 **PostgreSQL 연결로 그대로 재실행**(`tests/conftest.py`가 `TEST_DATABASE_URL` 환경변수를 읽도록 수정해, 같은 테스트 코드가 SQLite/PostgreSQL 양쪽에서 돌아가게 함)
+- `frontend-build`: `npm ci` + `npm run build`(Next.js 프로덕션 빌드)
+- `e2e-full-stack`: PostgreSQL 기동 → 마이그레이션 → `app.seed_ci_fixtures`(외부 네트워크 호출 없이 합성 문서 3건으로 실제 클러스터링·분석·추천 파이프라인을 그대로 실행) → FastAPI(PostgreSQL 연결)·Next.js(프로덕션 빌드) 기동 → Playwright 6건 전부 실행
+
+CI 성공만으로 "실제 웹사이트의 브라우저 동작이 확인됐다"고 주장하지 않기 위해, 10-4·10-5의 로컬 실제 브라우저 검증(실데이터 255건 기준)을 1차 근거로 삼고 CI는 "Docker/PostgreSQL이 없는 이 개발 환경에서 검증하지 못하는 부분을 보완하는 수단"으로만 사용했다.
+
+### 10-7. 실제 데이터 정합성
+
+| 항목 | DB 실제값(2026-10-23) | 대시보드 표시값 |
+|---|---|---|
+| 전체 수집 문서 | 255 | 255 |
+| ICT 분야 매칭 | 161 | 161 |
+| 분류 보류 | 94 | 94 |
+| 전문 확보 성공 | 215 | 215 |
+| 이슈 클러스터 | 143 | 143 |
+| 이슈 통합 검토대기 | 8 | 8 |
+| 후보주제 | 142 | 142 |
+| 국내 산업연관성 평가보류 | 143(이슈분석 143건 중 전부) | 143 |
+| 등록 출처 | 10 | 10 |
+
+모두 `python` 스크립트로 직접 집계한 DB 값과 화면 표시값이 일치함을 확인했다(화면이 숫자를 하드코딩하지 않음을 증명).
+
+### 10-8. 미구현·미검증 항목(정직하게 표시)
+
+- **실제 AI 모델 호출**: 여전히 API 키가 없어 모든 분석은 `rule_based`다. Phase 2-2·2-3과 동일한 상태이며 이번 단계에서 바뀌지 않았다.
+- **비밀번호 변경 폼**: 코드는 작성·백엔드 API(`PATCH /auth/password`)는 기존에 테스트됨, 하지만 이번 단계의 브라우저 E2E에는 포함하지 않았다 — 실행 미검증.
+- **수동 수집의 동시성 제어**: 같은 출처를 여러 번 빠르게 연타했을 때의 중복 실행 방지(동시 요청 잠금)는 구현하지 않았다 — 현재는 각 호출이 동기적으로 끝날 때까지 버튼이 비활성화되는 수준이다.
+- **장시간 작업의 비동기 처리**: 수집·재분석 API는 여전히 동기 호출이다(백그라운드 작업 큐 없음). 지금까지의 데이터 규모(건당 수 초)에서는 문제가 없었지만, 대량 재수집 시 HTTP 타임아웃 위험이 있다.
+- **이슈 병합·분리 UI**: 백엔드 API(`PATCH /issues/{id}/merge`, `POST /issues/split`)는 Phase 2-3에 이미 있으나, 이번 화면에서 버튼으로 연결하지는 못했다 — 현재는 API를 직접 호출해야 한다.
+- **Docker Compose 전체 스택 실제 기동**: 여전히 미검증(로컬에 Docker 없음). CI의 서비스 컨테이너 방식으로 PostgreSQL 통합만 검증했다.
+
+### 10-9. 다음 단계(Phase 3) 준비사항
+
+- 보고서 집필 화면과 연결할 데이터는 이미 존재한다: 확정(`status=final`) 후보주제 → `recommended_reason`/`summary`/연결된 `issue_cluster_id`의 분석 결과(`issue_analyses`, `issue_dispute_points`, `issue_timeline_events`) → 근거 원문(`source_documents`, `document_full_texts`)까지 전부 외래키로 추적 가능하다.
+- 원고 작성 화면에 필요한 신규 API: 초안 저장·버전관리(`manuscripts`/`editions` 테이블은 Phase 1부터 스키마만 존재, API 없음), 후보주제→원고 전환 엔드포인트.
+- 이슈 병합·분리를 실제 화면 버튼으로 연결하는 작업.
+- 실제 AI API 키 확보 시: Phase 2-2·2-3에서 이미 구현해 둔 공급자 중립 `ai_service.py` 경로를 그대로 켜고, 논쟁 탐지·국내 산업영향 분석의 실제 품질을 재검증해야 한다(현재는 전부 규칙 기반 추정치).

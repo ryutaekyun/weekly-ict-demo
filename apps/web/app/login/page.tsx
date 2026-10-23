@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -20,7 +21,8 @@ export default function LoginPage() {
         method: "POST",
         body: JSON.stringify({ email, password }),
       });
-      router.push("/candidates");
+      const next = searchParams.get("next");
+      router.push(next && next.startsWith("/") ? next : "/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "로그인에 실패했습니다");
     } finally {
@@ -63,5 +65,13 @@ export default function LoginPage() {
         </button>
       </form>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginForm />
+    </Suspense>
   );
 }

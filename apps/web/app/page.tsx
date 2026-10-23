@@ -8,7 +8,7 @@ export default function HomePage() {
   const router = useRouter();
   useEffect(() => {
     apiFetch<CurrentUser>("/auth/me")
-      .then(() => router.replace("/candidates"))
+      .then(() => router.replace("/dashboard"))
       .catch(() => router.replace("/login"));
   }, [router]);
   return null;
