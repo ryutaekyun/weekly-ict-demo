@@ -52,7 +52,7 @@ export default function ManuscriptEditor({
   }, [editor]);
 
   useEffect(() => {
-    if (editor) editor.setEditable(editable);
+    if (editor) editor.setEditable(editable, false); // false: 편집 가능 여부 전환만으로 update(=자동저장)를 일으키지 않는다
   }, [editor, editable]);
 
   if (!editor) return <div style={{ padding: 12, color: "var(--ink-muted)" }}>편집기 로딩 중...</div>;
