@@ -60,6 +60,7 @@ export interface Candidate {
   recommended_reason: string | null;
   status: CandidateStatus;
   created_by_user_id: string;
+  assignee_user_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -89,19 +90,33 @@ export interface CandidateRecommendationScore {
   scored_at: string;
 }
 
+export interface RelatedDocument {
+  document_id: string; title: string; origin_url: string; org: string | null; country_code: string | null; published_at: string | null;
+  link_state: string; link_blocked: boolean; link_note: string | null; is_pdf: boolean; is_primary: boolean;
+}
+export interface CandidateHistoryEntry {
+  action: string; actor: string | null; at: string; detail: { changes?: Record<string, { from: unknown; to: unknown }>; comment?: string } | null;
+}
 export interface CandidateDetail extends Candidate {
   reviews: CandidateReview[];
   recommendation_score: CandidateRecommendationScore | null;
+  assignee_name: string | null;
+  related_documents: RelatedDocument[];
+  history: CandidateHistoryEntry[];
 }
 
-export function listCandidates(filters: { field_code?: string; status?: string; q?: string } = {}): Promise<Candidate[]> {
+export function listCandidates(filters: { field_code?: string; status?: string; q?: string; assignee_user_id?: string; mine?: string } = {}): Promise<Candidate[]> {
   const params = new URLSearchParams();
   Object.entries(filters).forEach(([k, v]) => { if (v) params.set(k, v); });
   const qs = params.toString();
   return apiFetch<Candidate[]>(`/candidates${qs ? `?${qs}` : ""}`);
 }
 
-export function updateCandidate(id: string, payload: Partial<{ title: string; summary: string; recommended_reason: string; status: CandidateStatus }>): Promise<Candidate> {
+export function createCandidate(payload: { field_code: string; title: string; summary?: string; source_document_id?: string; recommended_reason?: string; assignee_user_id?: string }): Promise<Candidate> {
+  return apiFetch<Candidate>("/candidates", { method: "POST", body: JSON.stringify(payload) });
+}
+
+export function updateCandidate(id: string, payload: Partial<{ title: string; summary: string; recommended_reason: string; status: CandidateStatus; assignee_user_id: string | null }>): Promise<Candidate> {
   return apiFetch<Candidate>(`/candidates/${id}`, { method: "PATCH", body: JSON.stringify(payload) });
 }
 
@@ -139,6 +154,10 @@ export interface DocumentListItem {
   value_rating: string | null;
   extraction_status: string | null;
   issue_cluster_id: string | null;
+  link_state: string;
+  link_blocked: boolean;
+  link_note: string | null;
+  is_pdf: boolean;
 }
 
 export interface DocumentListResponse {
@@ -156,6 +175,14 @@ export interface DocumentFilters {
   relevance?: string;
   value_rating?: string;
   q?: string;
+  published_after?: string;
+  published_before?: string;
+  extraction_status?: string;
+  has_full_text?: string;
+  has_issue?: string;
+  has_candidate?: string;
+  candidate_status?: string;
+  sort?: string;
   page?: number;
   page_size?: number;
 }
@@ -168,6 +195,19 @@ export function listDocuments(filters: DocumentFilters = {}): Promise<DocumentLi
   const qs = params.toString();
   return apiFetch<DocumentListResponse>(`/documents${qs ? `?${qs}` : ""}`);
 }
+
+export interface DocumentFacets {
+  countries: { code: string; count: number }[];
+  sources: { id: string; name: string; count: number }[];
+  published_min: string | null;
+  published_max: string | null;
+}
+export const getDocumentFacets = () => apiFetch<DocumentFacets>("/documents/facets");
+
+export interface LinkCheckResult {
+  state: string; http_status: number | null; final_url: string | null; note: string | null; origin_url: string;
+}
+export const checkDocumentLink = (id: string) => apiFetch<LinkCheckResult>(`/documents/${id}/check-link`, { method: "POST" });
 
 export interface ClassificationOut {
   document_id: string;
@@ -280,6 +320,12 @@ export interface IssueMemberDocument {
   membership_type: string;
   similarity_score: number | null;
   judgment_reasoning: string | null;
+  link_state: string;
+  link_blocked: boolean;
+  link_note: string | null;
+  is_pdf: boolean;
+  source_org: string | null;
+  country_code: string | null;
 }
 
 export interface IssueTimelineEventOut {
@@ -335,6 +381,7 @@ export interface IssueDetail {
   timeline: IssueTimelineEventOut[];
   analysis: IssueAnalysisOut | null;
   disputes: IssueDisputePointOut[];
+  candidates: { id: string; title: string; status: string }[];
 }
 
 export interface IssueFilters {
@@ -350,6 +397,10 @@ export function listIssues(filters: IssueFilters = {}): Promise<IssueClusterOut[
   });
   const qs = params.toString();
   return apiFetch<IssueClusterOut[]>(`/issues${qs ? `?${qs}` : ""}`);
+}
+
+export function splitIssueDocument(documentId: string, reason?: string): Promise<IssueClusterOut> {
+  return apiFetch<IssueClusterOut>("/issues/split", { method: "POST", body: JSON.stringify({ document_id: documentId, reason }) });
 }
 
 export function getIssueDetail(id: string): Promise<IssueDetail> {
@@ -662,6 +713,9 @@ export interface ReportItemOut {
   id: string; position: number; part_key: string | null; heading: string | null; manuscript_id: string | null;
   manuscript_title: string | null; manuscript_status: string | null; summary_text: string | null;
   source_sentence: string | null; needs_review: boolean;
+  fact_changes?: { old_sentence: string; new_sentence: string | null; similarity: number; removed: string[]; added: string[] } | null;
+  past_facts?: string[];
+  fact_review?: { resolution: "updated" | "no_change"; note: string | null; reviewer: string | null; reviewed_at: string | null; current: boolean } | null;
 }
 export interface PreflightIssue { level: "error" | "warn" | "info"; code: string; message: string; part: string | null }
 export interface ReportDetail extends ReportListItem {
@@ -690,6 +744,8 @@ export const addSummaryItem = (id: string, payload: { part_key: string; manuscri
   apiFetch<ReportDetail>(`/reports/${id}/summary-items`, { method: "POST", body: JSON.stringify(payload) });
 export const updateReportItem = (id: string, itemId: string, payload: Partial<{ heading: string; summary_text: string }>) =>
   apiFetch<ReportDetail>(`/reports/${id}/items/${itemId}`, { method: "PATCH", body: JSON.stringify(payload) });
+export const factReviewReportItem = (id: string, itemId: string, payload: { resolution: "updated" | "no_change"; note: string; new_source_sentence?: string }) =>
+  apiFetch<ReportDetail>(`/reports/${id}/items/${itemId}/fact-review`, { method: "POST", body: JSON.stringify(payload) });
 export const deleteReportItem = (id: string, itemId: string) =>
   apiFetch<ReportDetail>(`/reports/${id}/items/${itemId}`, { method: "DELETE" });
 export const reorderReportItems = (id: string, itemIds: string[]) =>

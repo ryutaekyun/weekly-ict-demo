@@ -11,9 +11,11 @@ class CandidateCreate(BaseModel):
     title: str
     summary: str | None = None
     source_document_id: uuid.UUID | None = None
+    issue_cluster_id: uuid.UUID | None = None
     announced_date: date | None = None
     source_org: str | None = None
     recommended_reason: str | None = None
+    assignee_user_id: uuid.UUID | None = None
 
 
 class CandidateUpdate(BaseModel):
@@ -23,6 +25,7 @@ class CandidateUpdate(BaseModel):
     source_org: str | None = None
     recommended_reason: str | None = None
     status: CandidateStatus | None = None
+    assignee_user_id: uuid.UUID | None = None
 
 
 class CandidateReviewCreate(BaseModel):
@@ -56,6 +59,7 @@ class CandidateOut(BaseModel):
     recommended_reason: str | None
     status: CandidateStatus
     created_by_user_id: uuid.UUID
+    assignee_user_id: uuid.UUID | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -81,3 +85,6 @@ class CandidateRecommendationScoreOut(BaseModel):
 class CandidateDetailOut(CandidateOut):
     reviews: list[CandidateReviewOut] = []
     recommendation_score: CandidateRecommendationScoreOut | None = None
+    assignee_name: str | None = None
+    related_documents: list[dict] = []  # 근거 원문(핵심 이슈의 수집 문서) — 원문 링크 상태 포함
+    history: list[dict] = []  # 수정 이력(감사 로그)

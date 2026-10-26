@@ -37,6 +37,12 @@ class IssueMemberDocumentOut(BaseModel):
     membership_type: IssueMembershipType
     similarity_score: float | None
     judgment_reasoning: str | None
+    link_state: str = "document"
+    link_blocked: bool = False
+    link_note: str | None = None
+    is_pdf: bool = False
+    source_org: str | None = None
+    country_code: str | None = None
 
 
 class IssueTimelineEventOut(BaseModel):
@@ -102,6 +108,7 @@ class IssueDetailOut(BaseModel):
     timeline: list[IssueTimelineEventOut]
     analysis: IssueAnalysisOut | None
     disputes: list[IssueDisputePointOut]
+    candidates: list[dict] = []  # 이 이슈에서 만들어진 후보주제(상태 포함)
 
 
 class ClusterMergeIn(BaseModel):

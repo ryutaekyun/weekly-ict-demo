@@ -25,6 +25,7 @@ from app.models.manuscript import Manuscript
 from app.models.manuscript_footnote import ManuscriptFootnote
 from app.models.manuscript_version import ManuscriptVersion
 from app.models.report import Report, ReportExport, ReportItem, ReportTemplate
+from app.models.user import User
 from app.models.source_document import SourceDocument
 from app.services import followup_service, report_docx, report_pdf
 
@@ -125,14 +126,64 @@ def _manuscript_block(db: Session, manuscript: Manuscript) -> dict:
     }
 
 
+DATE_RE = re.compile(r"(\d{4})\s*[.\-/년]\s*(\d{1,2})\s*[.\-/월]\s*(\d{1,2})\s*[.일]?")
+NUM_RE = re.compile(r"\d[\d,]*(?:\.\d+)?\s?(?:%|퍼센트|kg|㎏|건|명|개|억|조|만|원|달러|GW|MW|TWh|GB|TB|nm|배|년|개월|일)")
+
+
+def extract_facts(text: str | None) -> set[str]:
+    """문장에서 핵심 사실(날짜·단위가 붙은 수치)을 뽑는다. 정확한 의미 비교가 아니라 변경 여부를 알리는 보조 지표다."""
+    text = text or ""
+    facts = {f"{int(y):04d}-{int(m):02d}-{int(d):02d}" for y, m, d in DATE_RE.findall(text)}
+    rest = DATE_RE.sub(" ", text)
+    for m in NUM_RE.findall(rest):
+        facts.add(re.sub(r"[\s,]", "", m))
+    return facts
+
+
+def best_new_sentence(old_sentence: str, body: str) -> tuple[str | None, float]:
+    """원고의 현재 본문에서 옛 요약 원문 문장과 가장 비슷한 문장을 찾는다(없으면 None)."""
+    import difflib
+
+    old_n = _norm(old_sentence)
+    candidates = [c.strip() for c in re.split(r"\n+", body or "") if c.strip()]
+    best, score = None, 0.0
+    for c in candidates:
+        r = difflib.SequenceMatcher(a=old_n, b=_norm(c)).ratio()
+        if r > score:
+            best, score = c, r
+    return (best, round(score, 2)) if score >= 0.35 else (None, round(score, 2))
+
+
+def fact_diff(old_sentence: str, body: str) -> dict:
+    new_sentence, ratio = best_new_sentence(old_sentence, body)
+    old_f, new_f = extract_facts(old_sentence), extract_facts(new_sentence)
+    return {"old_sentence": old_sentence, "new_sentence": new_sentence, "similarity": ratio,
+            "removed": sorted(old_f - new_f), "added": sorted(new_f - old_f)}
+
+
 def _summary_item_block(db: Session, item: ReportItem) -> dict:
     ms = db.get(Manuscript, item.manuscript_id) if item.manuscript_id else None
     footnotes: dict[str, dict] = {}
     footnote_ids: list[str] = []
     stale = False
+    fact_changes = None
+    past_facts: list[str] = []
+    review = None
     if ms is not None:
         source = _norm(item.source_sentence or "")
-        stale = bool(source) and source not in _norm(ms.body or "")
+        source_changed = bool(source) and source not in _norm(ms.body or "")
+        if source_changed:
+            fact_changes = fact_diff(item.source_sentence or "", ms.body or "")
+            # 요약문에 남아 있는, 현재 원고의 대응 문장에는 없는 과거 사실
+            current = extract_facts(fact_changes["new_sentence"]) if fact_changes["new_sentence"] else set()
+            past_facts = sorted(f for f in extract_facts(item.summary_text) if f in fact_changes["removed"] and f not in current)
+        reviewed = item.fact_review_status is not None and item.fact_reviewed_lock_version == ms.lock_version
+        if item.fact_review_status:
+            reviewer = db.get(User, item.fact_reviewed_by_user_id) if item.fact_reviewed_by_user_id else None
+            review = {"resolution": item.fact_review_status, "note": item.fact_review_note, "reviewer": reviewer.display_name if reviewer else None,
+                      "reviewed_at": item.fact_reviewed_at.isoformat() if item.fact_reviewed_at else None, "current": reviewed}
+        # 재검토가 끝나려면 연구원 기록이 있어야 하고(원고가 그 뒤 또 바뀌면 다시 필요), 과거 사실이 요약문에 남아 있으면 안 된다
+        stale = (source_changed and not reviewed) or bool(past_facts)
         for fn in db.scalars(select(ManuscriptFootnote).where(ManuscriptFootnote.manuscript_id == ms.id)).all():
             anchor = _norm(fn.anchor_text)
             if anchor and source and (anchor in source or source in anchor):
@@ -142,6 +193,7 @@ def _summary_item_block(db: Session, item: ReportItem) -> dict:
         "item_id": str(item.id), "text": item.summary_text or "", "source_sentence": item.source_sentence,
         "source_manuscript_id": str(item.manuscript_id) if item.manuscript_id else None,
         "source_manuscript_title": ms.title if ms else None, "needs_review": stale,
+        "fact_changes": fact_changes, "past_facts": past_facts, "fact_review": review,
         "footnotes": footnotes, "footnote_ids": footnote_ids,
     }
 

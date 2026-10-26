@@ -828,6 +828,7 @@ def deliberate(mid: uuid.UUID, db: Session = Depends(get_db), user: User = Depen
 class DecisionIn(BaseModel):
     outcome: str
     note: str | None = None
+    exception_reason: str | None = None  # 미해결 수정 의견이 남은 채 게재 확정할 때 승인권자가 남기는 사유
 
 
 @router.post("/manuscripts/{mid}/decision")
@@ -852,8 +853,9 @@ def decide(mid: uuid.UUID, payload: DecisionIn, db: Session = Depends(get_db), u
             raise HTTPException(status.HTTP_409_CONFLICT, "형식 보완이 끝나지 않은 원고는 게재 확정할 수 없습니다")
         open_c = db.scalar(select(func.count()).select_from(JournalComment).where(
             JournalComment.manuscript_id == ms.id, JournalComment.status != "resolved", JournalComment.requires_revision.is_(True))) or 0
-        if open_c:
-            raise HTTPException(status.HTTP_409_CONFLICT, f"해결되지 않은 수정 요청 의견 {open_c}건이 있습니다 — 해결 처리 후 게재 확정하세요")
+        if open_c and not (payload.exception_reason or "").strip():
+            raise HTTPException(status.HTTP_409_CONFLICT, f"해결되지 않은 수정 요청 의견 {open_c}건이 있습니다 — 검토자·담당자가 해결 확인을 한 뒤 확정하거나, 승인권자 예외 사유를 입력하세요")
+        dec.unresolved_count, dec.exception_reason = open_c, ((payload.exception_reason or "").strip() or None) if open_c else None
         svc.set_status(ms, "accepted")
         ms.accepted_version_id = last.id if last else None
     elif effect == "hold":
@@ -865,7 +867,8 @@ def decide(mid: uuid.UUID, payload: DecisionIn, db: Session = Depends(get_db), u
         if (payload.note or "").strip():
             db.add(JournalComment(manuscript_id=ms.id, version_id=last.id if last else None, author_user_id=user.id, kind="deliberation", scope="doc",
                                   text=payload.note, requires_revision=True))
-    _audit(db, user, "manuscript.decision", "journal_manuscript", ms.id, outcome=payload.outcome, final=final)
+    _audit(db, user, "manuscript.decision", "journal_manuscript", ms.id, outcome=payload.outcome, final=final,
+           exception=bool(dec.exception_reason), unresolved=dec.unresolved_count)
     db.commit()
     return svc.manuscript_out(db, ms)
 

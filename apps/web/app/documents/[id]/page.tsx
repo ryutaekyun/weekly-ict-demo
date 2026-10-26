@@ -4,7 +4,9 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
+import OriginalLink from "@/components/OriginalLink";
 import {
+  checkDocumentLink,
   getDocumentAnalysis,
   getDocumentFullText,
   getDocumentMeta,
@@ -13,6 +15,7 @@ import {
   UnauthorizedError,
   type DocumentAnalysis,
   type DocumentListItem,
+  type LinkCheckResult,
 } from "@/lib/api";
 import {
   DOCUMENT_TYPE_LABELS,
@@ -26,6 +29,8 @@ import {
 const CHUNK_SIZE = 1200;
 
 export default function DocumentDetailPage() {
+  const [linkCheck, setLinkCheck] = useState<LinkCheckResult | null>(null);
+  const [checking, setChecking] = useState(false);
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const [meta, setMeta] = useState<DocumentListItem | null>(null);
@@ -95,6 +100,13 @@ export default function DocumentDetailPage() {
     }
   }
 
+  async function checkLink() {
+    setChecking(true);
+    setLinkCheck(null);
+    try { setLinkCheck(await checkDocumentLink(params.id)); } catch (err) { setLinkCheck({ state: "unreachable", http_status: null, final_url: null, origin_url: "", note: err instanceof Error ? err.message : "점검 실패" }); }
+    finally { setChecking(false); }
+  }
+
   if (error) return <AppShell><p style={{ color: "var(--bad)" }}>{error}</p></AppShell>;
   if (!meta) return <AppShell><p>불러오는 중...</p></AppShell>;
 
@@ -112,9 +124,16 @@ export default function DocumentDetailPage() {
         <span>발표 {fmtDate(meta.published_at)}</span>
         <span>수집 {fmtDate(meta.collected_at)}</span>
         <span>{DOCUMENT_TYPE_LABELS[meta.document_type] ?? meta.document_type}</span>
-        <a href={meta.origin_url} target="_blank" rel="noreferrer">원문 링크 열기 ↗</a>
-        {meta.attachment_url && <a href={meta.attachment_url} target="_blank" rel="noreferrer">첨부 PDF 열기 ↗</a>}
+        <OriginalLink url={meta.origin_url} state={meta.link_state} blocked={meta.link_blocked} note={meta.link_note} isPdf={meta.is_pdf} testId="detail-origin-link">원문 링크 열기 ↗</OriginalLink>
+        {meta.attachment_url && <a href={meta.attachment_url} target="_blank" rel="noopener noreferrer">첨부 PDF 열기 ↗</a>}
+        <button className="tbtn" onClick={checkLink} disabled={meta.link_blocked || checking}>{checking ? "점검 중..." : "원문 링크 접속 점검"}</button>
       </div>
+      {linkCheck && (
+        <p role="status" style={{ fontSize: 12.5, margin: "-6px 0 10px", color: linkCheck.state === "reachable" ? "var(--ok)" : "#9a4b00" }}>
+          {({ reachable: "접속 확인됨", not_found: "문서를 찾을 수 없음(삭제되었거나 주소 오류 가능)", restricted: "서버가 접속을 제한함(주소 오류와 구분)", server_error: "서버 응답 오류", unreachable: "접속하지 못함(네트워크 제한일 수 있음)" } as Record<string, string>)[linkCheck.state] ?? linkCheck.state}
+          {linkCheck.http_status ? ` · HTTP ${linkCheck.http_status}` : ""}{linkCheck.note ? ` — ${linkCheck.note}` : ""}
+        </p>
+      )}
 
       {meta.issue_cluster_id && (
         <div className="panel" style={{ marginBottom: 14, background: "var(--navy-soft)" }}>

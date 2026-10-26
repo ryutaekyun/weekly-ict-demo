@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
-import { apiFetch, createManuscript, UnauthorizedError, updateCandidate, type CandidateDetail } from "@/lib/api";
+import OriginalLink from "@/components/OriginalLink";
+import { apiFetch, createManuscript, listUsers, UnauthorizedError, updateCandidate, type CandidateDetail, type UserSummary } from "@/lib/api";
 import { CANDIDATE_STATUS_LABELS, FIELD_LABELS, METHOD_LABELS, fmtDate, fmtDateOnly } from "@/lib/labels";
 
 type ScoreNumericKey = "policy_impact_score" | "timeliness_score" | "domestic_relevance_score" | "novelty_score" | "analysis_depth_score";
@@ -34,6 +35,9 @@ export default function CandidateDetailPage() {
   const [submitting, setSubmitting] = useState(false);
   const [editTitle, setEditTitle] = useState("");
   const [editReason, setEditReason] = useState("");
+  const [editSummary, setEditSummary] = useState("");
+  const [editAssignee, setEditAssignee] = useState("");
+  const [users, setUsers] = useState<UserSummary[]>([]);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const [startingManuscript, setStartingManuscript] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
@@ -44,12 +48,16 @@ export default function CandidateDetailPage() {
         setCandidate(c);
         setEditTitle(c.title);
         setEditReason(c.recommended_reason ?? "");
+        setEditSummary(c.summary ?? "");
+        setEditAssignee(c.assignee_user_id ?? "");
       })
       .catch((err) => {
         if (err instanceof UnauthorizedError) { router.push("/login"); return; }
         setError(err instanceof Error ? err.message : "불러오기 실패");
       });
   }
+
+  useEffect(() => { listUsers().then(setUsers).catch(() => undefined); }, []);
 
   useEffect(() => {
     load();
@@ -79,7 +87,7 @@ export default function CandidateDetailPage() {
     e.preventDefault();
     setSaveMsg(null);
     try {
-      await updateCandidate(params.id, { title: editTitle, recommended_reason: editReason });
+      await updateCandidate(params.id, { title: editTitle, summary: editSummary, recommended_reason: editReason, assignee_user_id: editAssignee || null });
       setSaveMsg("저장되었습니다");
       load();
     } catch (err) {
@@ -148,6 +156,22 @@ export default function CandidateDetailPage() {
       </div>
 
       {candidate.summary && <p style={{ fontSize: 13.5 }}>{candidate.summary}</p>}
+      <p style={{ fontSize: 12.5, color: "var(--ink-muted)" }}>검토 담당자: {candidate.assignee_name ?? "미지정"}</p>
+
+      <section className="panel" style={{ marginBottom: 16 }}>
+        <h2 style={{ fontSize: 14, margin: "0 0 10px" }}>근거 원문·관련 뉴스 ({candidate.related_documents.length}건)</h2>
+        {candidate.related_documents.length === 0 && <p style={{ color: "var(--ink-muted)", fontSize: 13 }}>연결된 근거 원문이 없습니다. 근거 문서가 있는 이슈에서 후보주제를 만들면 자동으로 연결됩니다.</p>}
+        <ul style={{ margin: 0, paddingLeft: 0, listStyle: "none", fontSize: 13 }}>
+          {candidate.related_documents.map((d) => (
+            <li key={d.document_id} style={{ padding: "8px 0", borderTop: "1px solid var(--border)" }}>
+              {d.is_primary && <span className="pill rec" style={{ marginRight: 6 }}>대표 근거</span>}
+              <OriginalLink url={d.origin_url} state={d.link_state} blocked={d.link_blocked} note={d.link_note} isPdf={d.is_pdf} testId="related-link">{d.title}</OriginalLink>
+              <span style={{ color: "var(--ink-muted)", marginLeft: 8 }}>{d.org ?? ""} {d.country_code ? `· ${d.country_code}` : ""} · {fmtDate(d.published_at)}</span>
+              <Link className="tbtn" style={{ marginLeft: 8 }} href={`/documents/${d.document_id}`} aria-label={`상세 분석: ${d.title}`}>상세 분석</Link>
+            </li>
+          ))}
+        </ul>
+      </section>
 
       {score ? (
         <section className="panel" style={{ marginBottom: 16 }}>
@@ -184,9 +208,14 @@ export default function CandidateDetailPage() {
       )}
 
       <section className="panel" style={{ marginBottom: 16 }}>
-        <h2 style={{ fontSize: 14, margin: "0 0 10px" }}>제목·추천 근거 수정</h2>
+        <h2 style={{ fontSize: 14, margin: "0 0 10px" }}>제목·설명·담당자·추천 근거 수정</h2>
         <form onSubmit={saveEdits} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} style={inp} placeholder="제목" />
+          <input aria-label="후보주제 제목" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} style={inp} placeholder="제목" />
+          <textarea aria-label="후보주제 설명" value={editSummary} onChange={(e) => setEditSummary(e.target.value)} style={{ ...inp, minHeight: 60 }} placeholder="설명" />
+          <select aria-label="검토 담당자" value={editAssignee} onChange={(e) => setEditAssignee(e.target.value)} style={inp}>
+            <option value="">담당자 미지정</option>
+            {users.map((u) => <option key={u.id} value={u.id}>{u.display_name}</option>)}
+          </select>
           <textarea value={editReason} onChange={(e) => setEditReason(e.target.value)} style={{ ...inp, minHeight: 70 }} placeholder="추천 근거" />
           <button className="tbtn primary" type="submit" style={{ alignSelf: "flex-start" }}>저장</button>
           {saveMsg && <span style={{ fontSize: 12.5, color: saveMsg.includes("실패") ? "var(--bad)" : "var(--ok)" }}>{saveMsg}</span>}
@@ -205,6 +234,21 @@ export default function CandidateDetailPage() {
         <p style={{ fontSize: 11.5, color: "var(--ink-muted)", marginTop: 8 }}>
           확정·반려는 최종 승인자 권한이 필요합니다. IITP 공식 선정 결과는 담당자가 별도로 기록하며, 내부 승인을 자동으로 IITP 승인으로 간주하지 않습니다.
         </p>
+      </section>
+
+      <section className="panel" style={{ marginBottom: 16 }}>
+        <h2 style={{ fontSize: 14, margin: "0 0 10px" }}>수정 이력</h2>
+        {candidate.history.length === 0 && <p style={{ color: "var(--ink-muted)", fontSize: 13 }}>기록된 이력이 없습니다.</p>}
+        <ul style={{ margin: 0, paddingLeft: 0, listStyle: "none", fontSize: 12.5 }}>
+          {candidate.history.map((h, i) => (
+            <li key={i} style={{ padding: "6px 0", borderTop: "1px solid var(--border)" }}>
+              {fmtDate(h.at)} · {h.actor ?? "시스템"} · {({ "candidate.create": "등록", "candidate.update": "수정", "candidate.review.add": "검토의견", "candidate.approve": "최종 승인" } as Record<string, string>)[h.action] ?? h.action}
+              {h.detail?.changes && Object.entries(h.detail.changes).map(([k, v]) => (
+                <div key={k} style={{ color: "var(--ink-muted)" }}>· {k}: {String(v.from ?? "-")} → {String(v.to ?? "-")}</div>
+              ))}
+            </li>
+          ))}
+        </ul>
       </section>
 
       <section className="panel">

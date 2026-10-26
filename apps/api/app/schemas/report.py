@@ -48,6 +48,12 @@ class FinalizeRequest(BaseModel):
     exception_reason: str | None = None
 
 
+class FactReviewIn(BaseModel):
+    resolution: Literal["updated", "no_change"]
+    note: str = Field(min_length=3)
+    new_source_sentence: str | None = None
+
+
 class ExportRequest(BaseModel):
     file_format: Literal["docx", "pdf"]
 
@@ -63,6 +69,9 @@ class ReportItemOut(BaseModel):
     summary_text: str | None
     source_sentence: str | None
     needs_review: bool = False
+    fact_changes: dict | None = None  # 원고 문장 변경 전후의 날짜·수치 비교
+    past_facts: list[str] = []  # 요약문에 남아 있는 '현재 원고 문장에는 없는' 과거 사실
+    fact_review: dict | None = None
 
 
 class ReportListItemOut(BaseModel):

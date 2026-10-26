@@ -60,6 +60,12 @@ class ReportItem(Base, UUIDPKMixin, TimestampMixin, UpdatedAtMixin):
     # 요약본 항목 — 연구원이 선택한 원고 문장 스냅샷과 편집된 요약문을 분리 저장한다(원본이 바뀌어도 덮어쓰지 않음)
     summary_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_sentence: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 연결된 원고의 핵심 사실(날짜·수치)이 바뀐 뒤 연구원이 남긴 재검토 기록 — 자동 수정이나 자동 해결이 아니다
+    fact_review_status: Mapped[str | None] = mapped_column(String(12), nullable=True)  # updated / no_change
+    fact_review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    fact_reviewed_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    fact_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    fact_reviewed_lock_version: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 검토 당시 원고 lock_version
 
 
 class ReportExport(Base, UUIDPKMixin, TimestampMixin):

@@ -25,6 +25,7 @@
 | 카드뉴스 제작(보고서·요약본 연계 생성, 디자인 템플릿 4종, 3분할 웹 편집기, 원문 근거·검증, 검토·승인·버전, **편집 가능한 PPTX** + 고화질 PNG) | **구현·실행·검증 완료 (Phase 3-3)** — PPTX는 텍스트·도형·표·차트가 PowerPoint 객체(전체 이미지 아님), PNG는 같은 PPTX를 LibreOffice로 렌더링(짧은 변 1,000px 이상). 기본 규격 7×15.62cm는 작업용 값. **Microsoft PowerPoint 실제 열람은 미검증**, 이미지·AI 생성 미구현. 상세는 `docs/PLATFORM_PLAN.md` §13 |
 | 후속 규정 알림(근거 원문을 바꾸는 후속 공식 문서 등록 → 영향받는 원고·보고서·카드뉴스에 재검토 표시, 자동 수정·자동 검증 없음) + 카드뉴스 품질 보완(출처 하이퍼링크, 합성 표시, 빈 항목 제거) | **구현·실행·검증 완료 (Phase 3-3.1)** — FMVSS 305a 시행일 연기(2025.2.18.→2025.3.20.)를 연방관보 공식 원문으로 확인해 시범 원고·카드뉴스에 반영하는 흐름을 실제 데이터로 수행. 상세는 `docs/PLATFORM_PLAN.md` §15 |
 | 주간기술동향지 편집(연간 25회 계획·편집 일정, 외부 전문가 DB, 원고 의뢰, 외부 저자 포털 제출·보안 검사, 검토·저자 수정·심의, 버전 비교, 교정, 임시 템플릿 DOCX/PDF 발간본) | **구현·실행·검증 완료 (Phase 3-4)** — 실제 브라우저 E2E와 합성 시범 업무(가상 집필진 2명·원고 2건)로 확인. **실제 이메일 발송·IITP 업로드 없음**, 표절검사 서비스 미연동, Microsoft Word 실제 호환 미검증, 저자 원고의 그림·각주는 발간본에 자동 변환되지 않음. 상세는 `docs/PLATFORM_PLAN.md` §16 |
+| 시연 통합·원문 링크·요약본 사실 재검토·심의 확정 통제·공개 `/preview/` | **구현·실행·검증 완료 (Phase 3-5)** — 뉴스 제목 클릭 시 공식 원문 새 탭(주소 없음은 차단+사유), 필터·정렬·건수·뒤로가기 유지, 빈 분야 처리, 이슈 병합·분리, 후보 수정 이력, 요약본 핵심 사실(시행일) 변경 비교와 검토자 판단 기록, 미해결 필수 심의의견 확정 차단(예외는 승인권자+사유), 읽기 전용 공개 스냅샷 `preview/`(개인정보·검토의견·원문 전문 제외). pytest 225건·Playwright 26건 통과. Word·PowerPoint 실열람 미검증. 화면별 상태는 `docs/FEATURE_AUDIT.md` 하단, 상세는 `docs/PLATFORM_PLAN.md` §17 |
 | HTML 파싱 수집기(Federal Register 외), 분야별 2곳 이상 확보, 실제 AI 모델 호출, HWPX 출력, 주간기술동향지·발간·배포 관리, 실제 메일 발송 | **미구현** (Phase 3-4 이후, `docs/PLATFORM_PLAN.md`의 로드맵 참고) |
 
 **Next.js 빌드/구동은 Phase 2-4에서 실제로 검증 완료**(winget으로 Node.js를 직접 설치해 빌드·실행·브라우저 테스트까지 수행, `docs/PLATFORM_PLAN.md` §10 참고). **Docker Compose 전체 스택만 사용자 환경에서 처음 실행·검증이 필요**하다(PostgreSQL 통합 자체는 GitHub Actions CI로 검증됨).
@@ -152,3 +153,13 @@ python -m app.create_admin --email admin@실제도메인 --name "관리자 이�
 - `cookie_secure`(기본 `false`)는 운영에서 HTTPS를 쓴다면 반드시 `true`로 바꿔야 쿠키에 `Secure` 속성이 붙는다.
 - `evidence_claims`, `editions`, `manuscripts` 등 11개 테이블은 스키마만 존재하고 API는 아직 없다(Phase 2 후속~3).
 - 운영 환경에서 여러 API 프로세스/서버로 수평 확장할 경우 로그인 잠금 외의 요청 단위 rate limiting(Nginx/Cloudflare 등 인프라 레벨)을 별도로 두는 것을 권장한다 — 현재 구현은 로그인 엔드포인트 전용이다.
+
+## 공개 시연(`/preview/`) 만들기·확인
+
+`preview/index.html`은 서버 없이 동작하는 읽기 전용 화면이며 `preview/data/snapshot.json`만 읽는다(로그인·저장·파일 생성은 로컬 통합 사이트에서만 동작). 스냅샷은 수집 시점의 복사본이므로 갱신하려면 다시 만든다.
+
+```bash
+cd apps/api
+PYTHONUTF8=1 PYTHONPATH=. .venv/Scripts/python.exe -m app.export_public_snapshot ../../preview/data/snapshot.json
+cd ../../preview && python -m http.server 8765   # http://localhost:8765/index.html
+```

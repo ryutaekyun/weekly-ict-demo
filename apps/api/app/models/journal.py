@@ -248,6 +248,8 @@ class JournalDecision(Base, UUIDPKMixin, TimestampMixin):
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     decided_by_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     is_final: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)  # 게재 확정·보류·반려 결정
+    exception_reason: Mapped[str | None] = mapped_column(Text, nullable=True)  # 미해결 수정 의견이 있는데 확정한 경우의 승인권자 사유
+    unresolved_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # 확정 당시 미해결 수정 의견 수
 
 
 class JournalPlagiarism(Base, UUIDPKMixin, TimestampMixin):

@@ -27,7 +27,7 @@ export default function JournalManuscriptPage() {
   const [asg, setAsg] = useState({ reviewer: "", round: 1, due: "", conflict: false, confirm: false });
   const [cmt, setCmt] = useState({ scope: "doc", anchor: "", text: "" });
   const [note, setNote] = useState("");
-  const [decision, setDecision] = useState({ outcome: "", note: "" });
+  const [decision, setDecision] = useState({ outcome: "", note: "", exception: "" });
   const [cmp, setCmp] = useState<JCompare | null>(null);
   const [cmpPair, setCmpPair] = useState({ from: 1, to: 2 });
   const [proof, setProof] = useState<Record<string, boolean>>({});
@@ -175,13 +175,15 @@ export default function JournalManuscriptPage() {
         <section className="panel" style={{ marginBottom: 12 }}>
           <b>심의 결과 확정</b>
           <p style={{ fontSize: 12, color: "var(--ink-muted)", margin: "2px 0 6px" }}>검토자 추천과 형식 점검은 참고 자료입니다. 게재 여부는 승인권자·관리자가 직접 확정하며 자동 점수로 정하지 않습니다.</p>
+          {ms.open_comment_count > 0 && <p role="alert" style={{ fontSize: 12.5, color: "#b42318", margin: "2px 0 6px" }}>해결되지 않은 수정 요청 의견이 {ms.open_comment_count}건 있습니다. 저자 답변만으로는 해결이 아니며, 검토자·담당자가 확인해 해결 처리해야 합니다. 표·그림 관련 의견은 원본 파일에서 직접 확인하세요. 예외로 확정하려면 아래에 사유를 남겨야 합니다.</p>}
           {canDecide ? (
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <select aria-label="심의 결과" value={decision.outcome} onChange={(e) => { const v = e.target.value; setDecision((d) => ({ ...d, outcome: v })); }} style={inp}>
                 <option value="">결과 선택</option>{ms.outcomes.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
               </select>
               <input aria-label="심의 의견" placeholder="심의 의견" value={decision.note} onChange={(e) => setDecision({ ...decision, note: e.target.value })} style={{ ...inp, flex: 1, minWidth: 220 }} />
-              <button className="tbtn primary" disabled={busy || !decision.outcome} onClick={() => act(() => jDecide(id, decision.outcome, decision.note), "심의 결과를 확정했습니다")}>결과 확정</button>
+              {ms.open_comment_count > 0 && <input aria-label="예외 사유" placeholder="미해결 의견이 있는데도 확정하는 사유(승인권자)" value={decision.exception} onChange={(e) => setDecision({ ...decision, exception: e.target.value })} style={{ ...inp, flex: 1, minWidth: 260 }} />}
+              <button className="tbtn primary" disabled={busy || !decision.outcome} onClick={() => act(() => jDecide(id, decision.outcome, decision.note, decision.exception), "심의 결과를 확정했습니다")}>결과 확정</button>
             </div>
           ) : <p style={{ fontSize: 13 }}>승인권자·관리자만 확정할 수 있습니다.</p>}
         </section>
@@ -189,7 +191,7 @@ export default function JournalManuscriptPage() {
       {(ms.decisions ?? []).length > 0 && (
         <section className="panel" style={{ marginBottom: 12, fontSize: 13 }}>
           <b>심의 이력</b>
-          {(ms.decisions ?? []).map((d) => <div key={d.id}>{d.round}차 · {ms.outcomes.find((o) => o.key === d.outcome)?.label} · {d.is_final ? "최종" : "수정 요청"} · {d.decided_by} {d.decided_at.slice(0, 10)}{d.note ? ` — ${d.note}` : ""}</div>)}
+          {(ms.decisions ?? []).map((d) => <div key={d.id}>{d.round}차 · {ms.outcomes.find((o) => o.key === d.outcome)?.label} · {d.is_final ? "최종" : "수정 요청"} · {d.decided_by} {d.decided_at.slice(0, 10)}{d.note ? ` — ${d.note}` : ""}{d.exception_reason ? ` · 예외 확정(미해결 의견 ${d.unresolved_count}건): ${d.exception_reason}` : ""}</div>)}
         </section>
       )}
 

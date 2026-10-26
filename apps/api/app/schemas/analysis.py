@@ -129,6 +129,11 @@ class DocumentListItemOut(BaseModel):
     value_rating: UsageValueRating | None
     extraction_status: ExtractionStatus | None
     issue_cluster_id: uuid.UUID | None
+    # 원문 링크 상태(형태 분류): document / homepage / search / invalid / missing — blocked면 원문 열기를 막고 사유를 보여준다
+    link_state: str = "document"
+    link_blocked: bool = False
+    link_note: str | None = None
+    is_pdf: bool = False
 
 
 class DocumentListOut(BaseModel):

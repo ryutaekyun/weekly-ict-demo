@@ -28,6 +28,7 @@ class Candidate(Base, UUIDPKMixin, TimestampMixin, UpdatedAtMixin):
         Enum(CandidateStatus, native_enum=False), default=CandidateStatus.REC, nullable=False
     )
     created_by_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    assignee_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)  # 검토 담당 연구원
 
     reviews: Mapped[list["CandidateReview"]] = relationship(
         back_populates="candidate", cascade="all, delete-orphan", order_by="CandidateReview.created_at"

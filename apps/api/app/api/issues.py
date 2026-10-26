@@ -9,11 +9,13 @@ from app.core.audit import log_action
 from app.core.db import get_db
 from app.core.deps import get_current_user, require_roles
 from app.models.enums import FieldCode, UserRole
+from app.models.candidate import Candidate
 from app.models.issue_analysis import IssueAnalysis
 from app.models.issue_cluster import IssueCluster
 from app.models.issue_cluster_document import IssueClusterDocument
 from app.models.issue_dispute_point import IssueDisputePoint
 from app.models.issue_timeline_event import IssueTimelineEvent
+from app.models.source import Source
 from app.models.source_document import SourceDocument
 from app.models.user import User
 from app.schemas.issue import (
@@ -33,6 +35,7 @@ from app.services.candidate_recommendation import get_or_create_scoring_config, 
 from app.services.issue_analysis import run_issue_analysis
 from app.services.issue_clustering import manual_merge_clusters, manual_split_document
 from app.services.issue_pipeline import run_clustering_for_document
+from app.services.link_quality import classify_url
 
 router = APIRouter(prefix="/issues", tags=["issues"])
 
@@ -83,11 +86,14 @@ def get_issue_detail(
     member_out = []
     for m in members:
         doc = db.get(SourceDocument, m.document_id)
+        _link = classify_url(doc.origin_url)
         member_out.append(
             IssueMemberDocumentOut(
                 document_id=doc.id, title=doc.title, origin_url=doc.origin_url, published_at=doc.published_at,
                 membership_type=m.membership_type, similarity_score=m.similarity_score,
                 judgment_reasoning=m.judgment_reasoning,
+                link_state=_link["state"], link_blocked=_link["blocked"], link_note=_link["note"], is_pdf=_link["is_pdf"],
+                source_org=(db.get(Source, doc.source_id).org_name if db.get(Source, doc.source_id) else None), country_code=doc.country_code,
             )
         )
 
@@ -108,6 +114,8 @@ def get_issue_detail(
         timeline=[IssueTimelineEventOut.model_validate(t) for t in timeline],
         analysis=IssueAnalysisOut.model_validate(analysis) if analysis else None,
         disputes=[IssueDisputePointOut.model_validate(d) for d in disputes],
+        candidates=[{"id": str(c.id), "title": c.title, "status": c.status.value}
+                    for c in db.scalars(select(Candidate).where(Candidate.issue_cluster_id == issue_id)).all()],
     )
 
 

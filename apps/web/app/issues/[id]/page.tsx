@@ -4,8 +4,10 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
-import { getIssueDetail, UnauthorizedError, type IssueDetail } from "@/lib/api";
+import OriginalLink from "@/components/OriginalLink";
+import { getIssueDetail, listIssues, mergeIssueCluster, splitIssueDocument, UnauthorizedError, type IssueClusterOut, type IssueDetail } from "@/lib/api";
 import {
+  CANDIDATE_STATUS_LABELS,
   CLUSTER_REVIEW_LABELS,
   DISPUTE_STATUS_LABELS,
   FIELD_LABELS,
@@ -39,16 +41,45 @@ export default function IssueDetailPage() {
   const router = useRouter();
   const [detail, setDetail] = useState<IssueDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [others, setOthers] = useState<IssueClusterOut[]>([]);
+  const [mergeTarget, setMergeTarget] = useState("");
+  const [mergeReason, setMergeReason] = useState("");
+  const [mergeConfirm, setMergeConfirm] = useState(false);
+  const [opMessage, setOpMessage] = useState<string | null>(null);
+  const [opError, setOpError] = useState<string | null>(null);
 
-  useEffect(() => {
+  function load() {
     getIssueDetail(params.id)
-      .then(setDetail)
+      .then((d) => { setDetail(d); listIssues({ field_code: d.cluster.field_code }).then((all) => setOthers(all.filter((c) => c.id !== d.cluster.id))).catch(() => undefined); })
       .catch((err) => {
         if (err instanceof UnauthorizedError) { router.push("/login"); return; }
         setError(err instanceof Error ? err.message : "불러오기 실패");
       });
+  }
+
+  useEffect(() => {
+    load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.id]);
+
+  async function doMerge() {
+    setOpError(null); setOpMessage(null);
+    try {
+      const target = await mergeIssueCluster(params.id, mergeTarget, mergeReason || undefined);
+      setOpMessage("이슈를 병합했습니다. 잘못 합쳤다면 병합된 문서를 '별도 이슈로 분리'해 되돌릴 수 있습니다.");
+      router.push(`/issues/${target.id}`);
+    } catch (err) { setOpError(err instanceof Error ? err.message : "병합 실패"); }
+  }
+
+  async function doSplit(documentId: string, title: string) {
+    setOpError(null); setOpMessage(null);
+    if (!window.confirm(`'${title}' 문서를 이 이슈에서 분리해 별도 이슈로 만듭니다. 계속할까요? (다시 병합해 되돌릴 수 있습니다)`)) return;
+    try {
+      const created = await splitIssueDocument(documentId, "연구원 수동 분리");
+      setOpMessage("문서를 분리해 새 이슈를 만들었습니다.");
+      router.push(`/issues/${created.id}`);
+    } catch (err) { setOpError(err instanceof Error ? err.message : "분리 실패"); }
+  }
 
   if (error) return <AppShell><p style={{ color: "var(--bad)" }}>{error}</p></AppShell>;
   if (!detail) return <AppShell><p>불러오는 중...</p></AppShell>;
@@ -187,12 +218,42 @@ export default function IssueDetailPage() {
           {members.map((m) => (
             <li key={m.document_id} style={{ padding: "8px 0", borderTop: "1px solid var(--border)" }}>
               <span className="pill review" style={{ marginRight: 8 }}>{MEMBERSHIP_TYPE_LABELS[m.membership_type] ?? m.membership_type}</span>
-              <Link href={`/documents/${m.document_id}`}>{m.title}</Link>
-              <span style={{ color: "var(--ink-muted)", marginLeft: 8 }}>{fmtDate(m.published_at)}</span>
+              <OriginalLink url={m.origin_url} state={m.link_state} blocked={m.link_blocked} note={m.link_note} isPdf={m.is_pdf} testId="member-link">{m.title}</OriginalLink>
+              <span style={{ color: "var(--ink-muted)", marginLeft: 8 }}>{m.source_org ?? ""} {m.country_code ? `· ${m.country_code}` : ""} · {fmtDate(m.published_at)}</span>
+              <Link className="tbtn" style={{ marginLeft: 8 }} href={`/documents/${m.document_id}`} aria-label={`상세 분석: ${m.title}`}>상세 분석</Link>
+              {members.length > 1 && <button className="tbtn" style={{ marginLeft: 6 }} onClick={() => doSplit(m.document_id, m.title)}>별도 이슈로 분리</button>}
               {m.judgment_reasoning && <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>통합 근거: {m.judgment_reasoning}</div>}
             </li>
           ))}
         </ul>
+      </section>
+
+      <section className="panel" style={{ marginTop: 16 }}>
+        <h2 style={sectionTitle}>이 이슈의 후보주제</h2>
+        {detail.candidates.length === 0 && <p style={{ color: "var(--ink-muted)", fontSize: 13 }}>이 이슈에서 만들어진 후보주제가 없습니다.</p>}
+        <ul style={{ margin: 0, paddingLeft: 0, listStyle: "none", fontSize: 13 }}>
+          {detail.candidates.map((c) => (
+            <li key={c.id} style={{ padding: "6px 0", borderTop: "1px solid var(--border)" }}>
+              <Link href={`/candidates/${c.id}`}>{c.title}</Link> <span className="pill review">{CANDIDATE_STATUS_LABELS[c.status] ?? c.status}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section className="panel" style={{ marginTop: 16 }}>
+        <h2 style={sectionTitle}>이슈 병합(같은 분야의 다른 이슈에 합치기)</h2>
+        <p style={{ fontSize: 12, color: "var(--ink-muted)", margin: "0 0 8px" }}>서로 다른 이슈를 잘못 합치지 않도록 확인이 필요합니다. 병합 후에도 문서를 &lsquo;별도 이슈로 분리&rsquo;하면 되돌릴 수 있고, 모든 변경은 이력으로 남습니다.</p>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <select aria-label="병합 대상 이슈" value={mergeTarget} onChange={(e) => setMergeTarget(e.target.value)} style={{ padding: 7, borderRadius: 8, border: "1px solid var(--border)", maxWidth: 420 }}>
+            <option value="">병합할 대상 이슈 선택</option>
+            {others.map((c) => <option key={c.id} value={c.id}>{c.title.slice(0, 60)} ({c.document_count}건)</option>)}
+          </select>
+          <input aria-label="병합 사유" placeholder="병합 사유" value={mergeReason} onChange={(e) => setMergeReason(e.target.value)} style={{ padding: 7, borderRadius: 8, border: "1px solid var(--border)", minWidth: 200 }} />
+          <label style={{ fontSize: 12.5 }}><input type="checkbox" checked={mergeConfirm} onChange={(e) => setMergeConfirm(e.target.checked)} /> 두 이슈가 같은 사건임을 확인했습니다</label>
+          <button className="tbtn" disabled={!mergeTarget || !mergeConfirm} onClick={doMerge}>이슈 병합</button>
+        </div>
+        {opMessage && <p role="status" style={{ color: "var(--ok)", fontSize: 13 }}>{opMessage}</p>}
+        {opError && <p role="alert" style={{ color: "var(--bad)", fontSize: 13 }}>{opError}</p>}
       </section>
     </AppShell>
   );

@@ -67,6 +67,32 @@ class BuildResult:
     part_headings: list[str] = field(default_factory=list)
 
 
+def _wrap_by_words(text: str, size_pt: float, width_cm: float, bold: bool = True) -> str:
+    """제목을 띄어쓰기 단위로 줄을 나눈다(Word·LibreOffice는 한글을 글자 중간에서도 끊기 때문에, 미리 단어 경계에서 줄바꿈한다).
+    글자 폭은 추정값이므로 안전 여유를 두고, 한 줄에 들어가면 그대로 둔다."""
+    from app.services.card_news_scene import _char_em
+
+    limit = width_cm * 28.3465 * 0.94
+    factor = 1.06 if bold else 1.0
+
+    def width(t: str) -> float:
+        return sum(_char_em(c) for c in t) * size_pt * factor
+
+    if width(text) <= limit:
+        return text
+    lines, cur = [], ""
+    for word in text.split(" "):
+        cand = f"{cur} {word}".strip()
+        if cur and width(cand) > limit:
+            lines.append(cur)
+            cur = word
+        else:
+            cur = cand
+    if cur:
+        lines.append(cur)
+    return "\n".join(lines)
+
+
 def _set_run_font(run, name: str, size: float | None = None) -> None:
     run.font.name = name
     rpr = run._r.get_or_add_rPr()
@@ -277,7 +303,7 @@ class DocxBuilder:
         r.bold = True
         title = self.doc.add_paragraph(style="Title")
         title.paragraph_format.space_after = Pt(6)
-        tr = title.add_run(_nbsp(rep["title"]))
+        tr = title.add_run(_wrap_by_words(_nbsp(rep["title"]), self._title_size(rep["title"]), 16.0))  # 한글이 단어 중간에서 끊기지 않게 단어 경계에서 줄바꿈
         _set_run_font(tr, cfg["font_heading"], self._title_size(rep["title"]))  # 긴 제목은 글자 크기를 줄여 단어가 어색하게 끊기지 않게 한다
         tr.bold = True
         tr.font.color.rgb = RGBColor.from_string(cfg["color_primary"])
@@ -325,7 +351,7 @@ class DocxBuilder:
         cfg = self.config
         title = self.doc.add_paragraph(style="Title")
         title.paragraph_format.space_after = Pt(2)
-        tr = title.add_run(_nbsp(rep["title"]))
+        tr = title.add_run(_wrap_by_words(_nbsp(rep["title"]), min(self._title_size(rep["title"]), 20), 16.0))
         _set_run_font(tr, cfg["font_heading"], min(self._title_size(rep["title"]), 20))
         tr.bold = True
         tr.font.color.rgb = RGBColor.from_string(cfg["color_primary"])

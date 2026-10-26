@@ -57,9 +57,9 @@ export default function DashboardPage() {
                     const isConv = code === "conv";
                     return (
                       <tr key={code} style={{ borderTop: "1px solid var(--border)" }}>
-                        <td style={{ padding: "6px 4px" }}>{label}</td>
+                        <td style={{ padding: "6px 4px" }}><Link href={`/documents?field_code=${code}`} aria-label={`${label} 자료 보기`}>{label}</Link></td>
                         <td style={{ padding: "6px 4px", textAlign: "right", fontWeight: 700, color: isConv && (row?.document_count ?? 0) === 0 ? "var(--warn)" : "var(--ink)" }}>
-                          {row?.document_count ?? 0}
+                          <Link href={`/documents?field_code=${code}`} style={{ color: "inherit" }} data-testid={`field-count-${code}`}>{row?.document_count ?? 0}</Link>
                           {isConv && (row?.document_count ?? 0) === 0 && " (수집원 보강 필요)"}
                         </td>
                       </tr>

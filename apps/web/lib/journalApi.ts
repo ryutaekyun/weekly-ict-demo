@@ -48,7 +48,7 @@ export interface JManuscript {
   required_docs: { key: string; label: string }[]; proof_confirmed: boolean; outcomes: { key: string; label: string; effect: string }[];
   open_comment_count: number; review_validity?: { change_ratio: number; threshold: number; needs_rereview: boolean; message: string | null };
   assignments?: JAssignment[];
-  decisions?: { id: string; round: number; outcome: string; note: string | null; is_final: boolean; decided_by: string | null; decided_at: string }[];
+  decisions?: { id: string; round: number; outcome: string; note: string | null; is_final: boolean; decided_by: string | null; decided_at: string; exception_reason: string | null; unresolved_count: number }[];
   plagiarism?: { id: string; service_name: string | null; file_name: string; similarity_pct: number | null; status: string; note: string | null }[];
   plagiarism_notice?: string;
 }
@@ -62,8 +62,9 @@ export interface JDash {
   plan: { planned_issues: number; with_publish_date: number; published_records: number; iitp_confirmed: number; note: string };
   commission_status: Record<string, number>; manuscript_status: Record<string, number>; review: { assigned: number; completed: number };
   delayed: JAlert[]; upcoming: JAlert[];
+  unresolved_comments: { manuscript_id: string; title: string; count: number }[];
   issues: { id: string; label: string; publish_date: string | null; status: string; status_label: string; topic: string | null; tech_field: string | null;
-    editor_user_id: string | null; iitp_confirmed: boolean; commissions: number; accepted: number; manuscripts: number; accepted_manuscripts: number; delayed_steps: number }[];
+    editor_user_id: string | null; iitp_confirmed: boolean; unresolved_comments: number; exception_decisions: number; commissions: number; accepted: number; manuscripts: number; accepted_manuscripts: number; delayed_steps: number }[];
 }
 export interface JAlert { kind: string; issue_id: string; issue_label: string; label: string; due_date: string; state: string; days: number }
 export interface JExport {
@@ -103,7 +104,8 @@ export const jAddComment = (id: string, body: Record<string, unknown>) => apiFet
 export const jResolve = (id: string, cid: string) => apiFetch<JComment>(`/journal/manuscripts/${id}/comments/${cid}/resolve`, { method: "POST" });
 export const jRequestRevision = (id: string, note?: string) => apiFetch<JManuscript>(`/journal/manuscripts/${id}/request-revision`, { method: "POST", body: JSON.stringify({ note }) });
 export const jDeliberate = (id: string) => apiFetch<JManuscript>(`/journal/manuscripts/${id}/deliberate`, { method: "POST" });
-export const jDecide = (id: string, outcome: string, note?: string) => apiFetch<JManuscript>(`/journal/manuscripts/${id}/decision`, { method: "POST", body: JSON.stringify({ outcome, note }) });
+export const jDecide = (id: string, outcome: string, note?: string, exception_reason?: string) =>
+  apiFetch<JManuscript>(`/journal/manuscripts/${id}/decision`, { method: "POST", body: JSON.stringify({ outcome, note, exception_reason: exception_reason || undefined }) });
 export const jCompare = (id: string, from: number, to: number) => apiFetch<JCompare>(`/journal/manuscripts/${id}/compare?from=${from}&to=${to}`);
 export const jConfirmProof = (id: string, checklist: Record<string, boolean>) => apiFetch<JManuscript>(`/journal/manuscripts/${id}/proof/confirm`, { method: "POST", body: JSON.stringify({ checklist }) });
 export const jConfirmPlagiarism = (id: string, pid: string) => apiFetch<unknown>(`/journal/manuscripts/${id}/plagiarism/${pid}/confirm`, { method: "POST" });

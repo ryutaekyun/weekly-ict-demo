@@ -164,6 +164,11 @@ def map_comments(comments: list[dict], old_paras: list[str], new_paras: list[str
     new_n = [_norm(p) for p in new_paras]
     out = []
     for c in comments:
+        if c.get("scope") in ("table", "figure"):
+            label = "표" if c["scope"] == "table" else "그림"
+            out.append({**c, "match": "needs_original_check",
+                        "note": f"{label} 관련 의견은 자동 비교로 수정 여부를 알 수 없습니다 — 원본 파일에서 직접 확인한 뒤 해결 처리하세요"})
+            continue
         anchor = _norm(c.get("anchor_text") or "")
         if not anchor:
             out.append({**c, "match": "doc_level", "note": "문서 전체 의견 — 문단 대응 없음(저자 답변·수정본으로 확인)"})
@@ -280,6 +285,9 @@ def to_editor_json(data: bytes) -> tuple[dict, list[str]]:
     list_buf: list[dict] = []
     list_kind = None
 
+    caption_at: int | None = None
+    caption_text: str | None = None
+
     def flush_list():
         nonlocal list_buf, list_kind
         if list_buf:
@@ -309,6 +317,11 @@ def to_editor_json(data: bytes) -> tuple[dict, list[str]]:
             else:
                 flush_list()
                 blocks.append({"type": "paragraph", "content": content})
+                cap = CAPTION_RE.match(p.text.strip())
+                if cap and len(p.text) <= 200 and cap.group(1).lower() in ("표", "table"):
+                    caption_at, caption_text = len(blocks) - 1, (cap.group(3) or "").strip() or None
+                else:
+                    caption_at = None
         elif tag == "tbl":
             flush_list()
             table = Table(child, doc)
@@ -326,6 +339,12 @@ def to_editor_json(data: bytes) -> tuple[dict, list[str]]:
                     cells.append({"type": "tableHeader" if r_idx == 0 else "tableCell", "content": [para]})
                 rows.append({"type": "tableRow", "content": cells})
             if rows:
-                blocks.append({"type": "table", "content": rows})
+                table_node: dict = {"type": "table", "content": rows}
+                if caption_at is not None and caption_at == len(blocks) - 1:  # 바로 앞 문단이 표 제목이면 표 제목 속성으로 합친다
+                    blocks.pop()
+                    if caption_text:
+                        table_node["attrs"] = {"caption": caption_text}
+                caption_at = None
+                blocks.append(table_node)
     flush_list()
     return {"type": "doc", "content": blocks}, sorted(set(skipped))

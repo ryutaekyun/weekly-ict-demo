@@ -15,6 +15,7 @@ from app.models.report import Report, ReportExport, ReportItem, ReportTemplate
 from app.models.user import User
 from app.schemas.report import (
     ExportRequest,
+    FactReviewIn,
     FinalizeRequest,
     PreflightIssue,
     ReorderRequest,
@@ -60,10 +61,12 @@ def _assert_can_access_files(report: Report, user: User) -> None:
 
 def _item_out(db: Session, item: ReportItem) -> ReportItemOut:
     ms = db.get(Manuscript, item.manuscript_id) if item.manuscript_id else None
-    needs_review = False
+    needs_review, extra = False, {}
     if item.summary_text is not None and ms is not None and item.source_sentence:
-        needs_review = report_service._summary_item_block(db, item)["needs_review"]
-    return ReportItemOut(
+        block = report_service._summary_item_block(db, item)
+        needs_review = block["needs_review"]
+        extra = {"fact_changes": block["fact_changes"], "past_facts": block["past_facts"], "fact_review": block["fact_review"]}
+    return ReportItemOut(**extra, 
         id=item.id, position=item.position, part_key=item.part_key, heading=item.heading,
         manuscript_id=item.manuscript_id, manuscript_title=ms.title if ms else None,
         manuscript_status=ms.status.value if ms else None, summary_text=item.summary_text,
@@ -199,6 +202,37 @@ def update_item(report_id: uuid.UUID, item_id: uuid.UUID, payload: ReportItemUpd
     for field, value in data.items():
         setattr(item, field, value)
     report.lock_version += 1
+    db.commit()
+    return _detail(db, report)
+
+
+@router.post("/{report_id}/items/{item_id}/fact-review", response_model=ReportDetailOut)
+def fact_review(report_id: uuid.UUID, item_id: uuid.UUID, payload: FactReviewIn, db: Session = Depends(get_db),
+                user: User = Depends(get_current_user)):
+    """연결된 원고의 핵심 사실이 바뀐 요약 항목에 대해 연구원이 '수정 반영' 또는 '영향 없음'을 기록한다.
+    요약문을 자동으로 고치지 않으며, 과거 사실이 요약문에 남아 있으면 어느 쪽으로도 기록할 수 없다."""
+    report = _get_report(db, report_id)
+    _assert_can_edit(report, user)
+    item = db.get(ReportItem, item_id)
+    if item is None or item.report_id != report.id or item.summary_text is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "요약 항목을 찾을 수 없습니다")
+    ms = db.get(Manuscript, item.manuscript_id) if item.manuscript_id else None
+    if ms is None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "연결된 원고가 없습니다")
+    if payload.new_source_sentence:
+        if report_service._norm(payload.new_source_sentence) not in report_service._norm(ms.body or ""):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "선택한 문장이 현재 원고 본문에 없습니다")
+        item.source_sentence = payload.new_source_sentence.strip()
+    block = report_service._summary_item_block(db, item)
+    if block["past_facts"]:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            "요약문에 현재 원고에 없는 과거 사실이 남아 있습니다: " + ", ".join(block["past_facts"]) + " — 요약문을 먼저 수정하세요")
+    item.fact_review_status, item.fact_review_note = payload.resolution, payload.note.strip()
+    item.fact_reviewed_by_user_id, item.fact_reviewed_at = user.id, datetime.now(timezone.utc)
+    item.fact_reviewed_lock_version = ms.lock_version
+    report.lock_version += 1
+    log_action(db, actor_user_id=user.id, action="report.fact_review", entity_type="report", entity_id=report.id,
+               detail={"item_id": str(item.id), "resolution": payload.resolution})
     db.commit()
     return _detail(db, report)
 

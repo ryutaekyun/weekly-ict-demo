@@ -6,7 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import FollowupBanner from "@/components/FollowupBanner";
 import {
-  addReportItem, addSummaryItem, createReportExport, deleteReportItem, fetchReportExportBlob, finalizeReport,
+  addReportItem, addSummaryItem, factReviewReportItem, createReportExport, deleteReportItem, fetchReportExportBlob, finalizeReport,
   getCurrentUser, getReport, getSourceSentences, listManuscripts, listReportExports, reopenReport,
   reorderReportItems, updateReport, updateReportItem, UnauthorizedError,
   type CurrentUser, type ManuscriptListItem, type PreflightIssue, type ReportDetail, type ReportExportOut,
@@ -51,6 +51,7 @@ export default function ReportDetailPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [pick, setPick] = useState<Record<string, string>>({});
   const [summaryMs, setSummaryMs] = useState("");
+  const [factNotes, setFactNotes] = useState<Record<string, string>>({});
   const [sentences, setSentences] = useState<string[]>([]);
   const [summaryPart, setSummaryPart] = useState("key_issue");
   const [exceptionReason, setExceptionReason] = useState("");
@@ -250,8 +251,27 @@ export default function ReportDetailPage() {
                         <div style={{ fontSize: 11.5, color: "var(--ink-muted)", display: "flex", gap: 8, alignItems: "center" }}>
                           <span>원본: <Link href={`/manuscripts/${it.manuscript_id}`}>{it.manuscript_title}</Link></span>
                           {it.needs_review && <span className="pill hold">원고 변경 — 요약본 재검토 필요</span>}
+                          {!it.needs_review && it.fact_review?.current && <span className="pill rec">재검토 기록됨({it.fact_review.resolution === "updated" ? "수정 반영" : "영향 없음"})</span>}
                           <button className="tbtn" style={{ marginLeft: "auto" }} disabled={locked} onClick={() => run("del", () => deleteReportItem(report.id, it.id), applyDetail)}>제거</button>
                         </div>
+                        {(it.needs_review || it.fact_review) && it.fact_changes && (
+                          <div role="region" aria-label="핵심 사실 변경 검토" style={{ background: "#FFF4D6", border: "1px solid #E5C77A", borderRadius: 8, padding: 8, marginTop: 6, fontSize: 12.5 }}>
+                            <b>연결된 원고의 문장이 바뀌었습니다 — 변경 전후 비교</b>
+                            <div style={{ color: "#b42318" }}>변경 전: {it.fact_changes.old_sentence}</div>
+                            <div style={{ color: "#2f7d62" }}>변경 후: {it.fact_changes.new_sentence ?? "(대응하는 문장을 찾지 못함 — 원고에서 직접 확인)"}</div>
+                            {it.fact_changes.removed.length > 0 && <div>사라진 사실: {it.fact_changes.removed.join(", ")}</div>}
+                            {it.fact_changes.added.length > 0 && <div>새로 생긴 사실: {it.fact_changes.added.join(", ")} (요약문에 반영되었는지 확인하세요)</div>}
+                            {(it.past_facts ?? []).length > 0 && <div role="alert" style={{ color: "#b42318", fontWeight: 700 }}>요약문에 남은 과거 사실: {(it.past_facts ?? []).join(", ")} — 요약문을 먼저 수정해야 합니다</div>}
+                            {it.fact_review && <div style={{ color: "var(--ink-muted)" }}>이전 기록: {it.fact_review.resolution === "updated" ? "수정 반영" : "영향 없음"} · {it.fact_review.reviewer} · {it.fact_review.note}{it.fact_review.current ? "" : " (원고가 그 뒤 다시 바뀌어 재검토 필요)"}</div>}
+                            {it.needs_review && !locked && (
+                              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 4 }}>
+                                <input aria-label={`재검토 사유: ${it.source_sentence?.slice(0, 12)}`} placeholder="수정한 내용 또는 영향 없음 사유" value={factNotes[it.id] ?? ""} onChange={(e) => setFactNotes({ ...factNotes, [it.id]: e.target.value })} style={{ ...inp, flex: 1, minWidth: 220 }} />
+                                <button className="tbtn" onClick={() => run("fact", () => factReviewReportItem(report.id, it.id, { resolution: "updated", note: factNotes[it.id] ?? "", new_source_sentence: it.fact_changes?.new_sentence ?? undefined }), applyDetail)}>수정 반영 확인</button>
+                                <button className="tbtn" onClick={() => run("fact", () => factReviewReportItem(report.id, it.id, { resolution: "no_change", note: factNotes[it.id] ?? "", new_source_sentence: it.fact_changes?.new_sentence ?? undefined }), applyDetail)}>영향 없음 확인</button>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>

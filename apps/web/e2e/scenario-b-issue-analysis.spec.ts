@@ -17,7 +17,7 @@ test("시나리오 B — 핵심 이슈 목록 → 복수 문서 이슈 선택 �
   await expect(page.getByText("② 타임라인")).toBeVisible();
   await expect(page.getByText("관련 원문 전체 목록")).toBeVisible();
 
-  const docLink = page.locator("text=관련 원문 전체 목록").locator("xpath=following::a[1]");
+  const docLink = page.getByRole("link", { name: /^상세 분석/ }).first();
   await expect(docLink).toBeVisible();
   await docLink.click();
   await expect(page).toHaveURL(/\/documents\//);

@@ -70,6 +70,12 @@ export default function JournalHome() {
             <div className="panel" style={cardStyle}><div style={{ fontSize: 12 }}>검토 배정</div>
               <div style={{ fontSize: 12.5 }}>진행 {dash.review.assigned} · 완료 {dash.review.completed}</div></div>
           </div>
+          {dash.unresolved_comments.length > 0 && (
+            <div className="panel" role="region" aria-label="미해결 심의의견" style={{ marginBottom: 12, fontSize: 12.5, background: "#FFF4D6" }}>
+              <b>미해결 필수 수정 의견</b> — 저자 답변만 있고 해결 확인이 없는 의견입니다.
+              {dash.unresolved_comments.map((u) => <div key={u.manuscript_id}><Link href={`/journal/manuscripts/${u.manuscript_id}`}>{u.title}</Link> · {u.count}건</div>)}
+            </div>
+          )}
           <div className="panel" style={{ marginBottom: 12, fontSize: 12.5 }}>
             <b>원고 현황</b>: {Object.keys(MSTAT).map((k) => `${MSTAT[k]} ${dash.manuscript_status[k] ?? 0}`).join(" · ")}
             <div style={{ color: "var(--ink-muted)", marginTop: 4 }}>{dash.plan.note}</div>
@@ -100,7 +106,7 @@ export default function JournalHome() {
           <div className="panel" style={{ padding: 0, overflow: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead><tr style={{ textAlign: "left", background: "var(--panel-2)" }}>
-                {["회차", "발간 예정일", "상태", "주제·분야", "의뢰/수락", "원고/게재 확정", "지연", "IITP 확인"].map((h) => <th key={h} style={{ padding: "9px 12px" }}>{h}</th>)}
+                {["회차", "발간 예정일", "상태", "주제·분야", "의뢰/수락", "원고/게재 확정", "지연", "미해결 의견", "IITP 확인"].map((h) => <th key={h} style={{ padding: "9px 12px" }}>{h}</th>)}
               </tr></thead>
               <tbody>
                 {issues.map((i) => (
@@ -112,10 +118,11 @@ export default function JournalHome() {
                     <td style={{ padding: "8px 12px" }}>{i.commissions}/{i.accepted}</td>
                     <td style={{ padding: "8px 12px" }}>{i.manuscripts}/{i.accepted_manuscripts}</td>
                     <td style={{ padding: "8px 12px", color: i.delayed_steps ? "#b42318" : undefined }}>{i.delayed_steps ? `${i.delayed_steps}단계` : "-"}</td>
+                    <td style={{ padding: "8px 12px", color: i.unresolved_comments ? "#b42318" : undefined }}>{i.unresolved_comments ? `${i.unresolved_comments}건` : "-"}{i.exception_decisions ? ` (예외 확정 ${i.exception_decisions})` : ""}</td>
                     <td style={{ padding: "8px 12px" }}>{i.iitp_confirmed ? "확인 완료" : "확인 전"}</td>
                   </tr>
                 ))}
-                {issues.length === 0 && <tr><td colSpan={8} style={{ padding: 14, color: "var(--ink-muted)" }}>등록된 회차가 없습니다. 위의 &lsquo;연간 계획 등록&rsquo;을 눌러 시작하세요.</td></tr>}
+                {issues.length === 0 && <tr><td colSpan={9} style={{ padding: 14, color: "var(--ink-muted)" }}>등록된 회차가 없습니다. 위의 &lsquo;연간 계획 등록&rsquo;을 눌러 시작하세요.</td></tr>}
               </tbody>
             </table>
           </div>

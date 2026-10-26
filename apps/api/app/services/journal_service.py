@@ -531,6 +531,7 @@ def manuscript_out(db: Session, ms: JournalManuscript, *, for_author: bool = Fal
         out["assignments"] = [assignment_out(db, a) for a in db.scalars(select(JournalAssignment).where(JournalAssignment.manuscript_id == ms.id)
                                                                            .order_by(JournalAssignment.round, JournalAssignment.created_at)).all()]
         out["decisions"] = [{"id": str(d.id), "round": d.round, "outcome": d.outcome, "note": d.note, "is_final": d.is_final,
+                             "exception_reason": d.exception_reason, "unresolved_count": d.unresolved_count,
                              "decided_by": (db.get(User, d.decided_by_user_id).display_name if db.get(User, d.decided_by_user_id) else None),
                              "decided_at": d.created_at.isoformat()} for d in db.scalars(select(JournalDecision).where(JournalDecision.manuscript_id == ms.id)
                                                                                          .order_by(JournalDecision.created_at)).all()]
@@ -592,6 +593,11 @@ def dashboard(db: Session, year: int | None, editor_id: uuid.UUID | None = None,
                        "due_date": a.due_date.isoformat(), "state": "delayed" if days < 0 else "due_soon", "days": days}
                 (delayed if days < 0 else upcoming).append(row)
 
+    unresolved = {}
+    for c in db.scalars(select(JournalComment).where(JournalComment.manuscript_id.in_([m.id for m in manuscripts]), JournalComment.status != "resolved",
+                                                     JournalComment.requires_revision.is_(True))).all() if manuscripts else []:
+        unresolved[c.manuscript_id] = unresolved.get(c.manuscript_id, 0) + 1
+
     def count(items, key):
         out: dict[str, int] = {}
         for x in items:
@@ -610,6 +616,9 @@ def dashboard(db: Session, year: int | None, editor_id: uuid.UUID | None = None,
             "commissions": sum(1 for c in commissions if c.issue_id == i.id), "accepted": sum(1 for c in commissions if c.issue_id == i.id and c.status == "accepted"),
             "manuscripts": len(ms_i), "accepted_manuscripts": sum(1 for m in ms_i if m.status == "accepted"),
             "delayed_steps": sum(1 for s in steps_by_issue.get(i.id, []) if step_state(s, on, cfg["due_soon_days"]) == "delayed"),
+            "unresolved_comments": sum(unresolved.get(m.id, 0) for m in ms_i),
+            "exception_decisions": sum(1 for d in db.scalars(select(JournalDecision).where(JournalDecision.manuscript_id.in_([m.id for m in ms_i]),
+                                                                                         JournalDecision.exception_reason.is_not(None))).all()) if ms_i else 0,
         })
     return {
         "year": year, "today": on.isoformat(),
@@ -619,6 +628,8 @@ def dashboard(db: Session, year: int | None, editor_id: uuid.UUID | None = None,
                  "note": "계획 건수와 실제 발간 기록 건수는 데이터베이스 기준으로 따로 계산합니다"},
         "commission_status": count(commissions, "status"), "manuscript_status": count(manuscripts, "status"),
         "review": {"assigned": sum(1 for a in assignments if a.status != "completed"), "completed": sum(1 for a in assignments if a.status == "completed")},
+        "unresolved_comments": [{"manuscript_id": str(mid), "title": next((m.title for m in manuscripts if m.id == mid), ""), "count": n}
+                                for mid, n in unresolved.items()],
         "delayed": sorted(delayed, key=lambda r: r["days"]), "upcoming": sorted(upcoming, key=lambda r: r["days"]), "issues": rows,
     }
 

@@ -5,7 +5,7 @@ test("시나리오 D — 문서 선택 → 분류 수정 → 저장 → 새로�
   await login(page, E2E_ADMIN);
 
   await page.goto("/documents");
-  await page.locator("table tbody tr td a").first().click();
+  await page.getByRole("link", { name: /^상세 분석/ }).first().click(); // 제목은 외부 원문(새 탭), 상세 분석은 플랫폼 내부 화면
 
   const ratingSelect = page.locator("form", { hasText: "실무 활용성 평가" }).locator("select");
   const current = await ratingSelect.inputValue();
