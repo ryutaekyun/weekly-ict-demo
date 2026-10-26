@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
+import FollowupBanner from "@/components/FollowupBanner";
 import CardPreview from "@/components/CardPreview";
 import { getCurrentUser, listUsers, UnauthorizedError, type CurrentUser, type UserSummary } from "@/lib/api";
 import {
@@ -256,6 +257,7 @@ export default function CardNewsEditorPage() {
       )}
       {error && saveStatus !== "conflict" && <p role="alert" style={{ color: "#b42318", fontSize: 13, margin: "4px 0" }}>{error}</p>}
       {message && <p role="status" style={{ color: "var(--ok)", fontSize: 13, margin: "4px 0" }}>{message}</p>}
+      <FollowupBanner entityType="card_news" entityId={id} canAck={isOwner || privileged} onChanged={load} />
       {(cn.needs_review || cn.source_changed) && (
         <p style={{ fontSize: 12.5, color: "#9a4b00", margin: "4px 0" }}>
           {cn.needs_review ? "원본 변경·재검토 필요: 연결된 보고서/원고의 문장이 바뀌었습니다(카드 내용은 자동으로 바뀌지 않았습니다)." : "연결된 원고의 버전이 카드뉴스 생성 이후 바뀌었습니다."}

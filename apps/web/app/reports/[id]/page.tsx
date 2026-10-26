@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
+import FollowupBanner from "@/components/FollowupBanner";
 import {
   addReportItem, addSummaryItem, createReportExport, deleteReportItem, fetchReportExportBlob, finalizeReport,
   getCurrentUser, getReport, getSourceSentences, listManuscripts, listReportExports, reopenReport,
@@ -200,6 +201,7 @@ export default function ReportDetailPage() {
         <span className={`pill ${locked ? "rec" : "review"}`}>{REPORT_STATUS_LABELS[report.status] ?? report.status}</span>
         <span className="pill hold">{report.iitp_confirmed ? "IITP 확인 완료" : "IITP 공식 확인 전"}</span>
       </div>
+      <FollowupBanner entityType="report" entityId={report.id} canAck={report.created_by_user_id === me?.id || ["admin", "approver", "reviewer"].includes(me?.role ?? "")} onChanged={load} />
       {error && <p role="alert" style={{ color: "#b42318", fontSize: 13 }}>{error}</p>}
       {message && <p role="status" style={{ color: "var(--ok)", fontSize: 13 }}>{message}</p>}
 

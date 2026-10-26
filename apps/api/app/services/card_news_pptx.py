@@ -16,8 +16,9 @@ from pptx.enum.text import MSO_ANCHOR, MSO_AUTO_SIZE, PP_ALIGN
 from pptx.oxml.ns import qn
 from pptx.util import Cm, Pt
 
-from app.services.card_news_scene import PAD_CM
+from app.services.card_news_scene import PAD_CM, _lum
 
+STATE_TEXT = {"verified": "연구원 검증됨", "not_verified": "근거 미검증", "stale": "검증 후 수정됨·재검증 필요"}
 ALIGN = {"left": PP_ALIGN.LEFT, "center": PP_ALIGN.CENTER, "right": PP_ALIGN.RIGHT}
 VALIGN = {"top": MSO_ANCHOR.TOP, "middle": MSO_ANCHOR.MIDDLE, "bottom": MSO_ANCHOR.BOTTOM}
 
@@ -67,6 +68,33 @@ def _add_text(slide, it: dict) -> None:
     tf.margin_left = tf.margin_right = Cm(PAD_CM)
     tf.margin_top = tf.margin_bottom = Cm(0.05)
     tf.vertical_anchor = VALIGN[it["valign"]]
+    if it.get("links") and _lum(it["color"]) > 0.45:
+        # 어두운 배경 카드: 하이퍼링크 글자는 PowerPoint 테마 링크색(파랑)으로 바뀌어 읽기 어려우므로 글자색은 유지하고
+        # 텍스트 상자 전체에 첫 출처 링크를 건다(전체 출처 URL은 슬라이드 노트에 있음)
+        tb.click_action.hyperlink.address = it["links"][0]["url"]
+        it = dict(it, links=None)
+    if it.get("links"):  # 출처 문구: 원문으로 이동하는 하이퍼링크(PNG는 클릭할 수 없으므로 출처 목록은 슬라이드 노트·별도 파일에 둔다)
+        p = tf.paragraphs[0]
+        p.alignment = ALIGN[it["align"]]
+        p.line_spacing = it.get("spacing", 1.2)
+        run = p.add_run()
+        run.text = "출처: "
+        _set_fonts(run, it["font"], it["size"], it["bold"], it["color"])
+        for n, lk in enumerate(it["links"]):
+            if n:
+                sep = p.add_run()
+                sep.text = ", "
+                _set_fonts(sep, it["font"], it["size"], it["bold"], it["color"])
+            r = p.add_run()
+            r.text = lk["label"]
+            _set_fonts(r, it["font"], it["size"], it["bold"], it["color"])
+            r.hyperlink.address = lk["url"]
+        rest = str(it["text"])[len("출처: " + ", ".join(lk["label"] for lk in it["links"])):]
+        if rest:  # "외 n건" 등 링크가 아닌 꼬리 문구
+            tail = p.add_run()
+            tail.text = rest
+            _set_fonts(tail, it["font"], it["size"], it["bold"], it["color"])
+        return
     for idx, para_text in enumerate(str(it["text"]).split("\n")):
         p = tf.paragraphs[0] if idx == 0 else tf.add_paragraph()
         p.alignment = ALIGN[it["align"]]
@@ -169,6 +197,12 @@ def build_pptx(scenes: list[dict], title: str, font: str) -> bytes:
         slide = prs.slides.add_slide(blank)
         slide.background.fill.solid()
         slide.background.fill.fore_color.rgb = _rgb(scene["background"])
+        if scene.get("sources"):
+            notes = ["출처 목록(근거 상태는 내부 검증 기록 기준이며 IITP 공식 확인이 아닙니다)"]
+            for s in scene["sources"]:
+                notes.append(" · ".join(x for x in (s["label"], s.get("doc_title"), f"발표일 {s['published']}" if s.get("published") else None,
+                                                    s["url"], STATE_TEXT.get(s["state"], s["state"])) if x))
+            slide.notes_slide.notes_text_frame.text = "\n".join(notes)
         for it in scene["items"]:
             kind = it["type"]
             if kind == "rect":

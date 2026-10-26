@@ -30,14 +30,14 @@ from app.models.manuscript import Manuscript
 from app.models.manuscript_footnote import ManuscriptFootnote
 from app.models.report import Report, ReportItem
 from app.models.source_document import SourceDocument
-from app.services import card_news_pptx, card_news_render, card_news_scene, report_pdf
+from app.services import card_news_pptx, card_news_render, card_news_scene, followup_service, report_pdf
 from app.services.card_news_schema import (
     DEFAULT_HEIGHT_CM, DEFAULT_WIDTH_CM, FILL_ORDER, STAGE_KINDS, STAGE_SLOTS, TEMPLATES, default_card_kinds, element_specs, template_config,
 )
 
 BLOCKING_CODES = {
     "empty_required", "missing_source", "text_overflow", "out_of_bounds", "text_overlap", "unverified_claim",
-    "claim_without_evidence", "evidence_stale", "source_stale", "chart_incomplete",
+    "claim_without_evidence", "evidence_stale", "source_stale", "chart_incomplete", "followup_pending",
 }
 CONFLICT_MESSAGE = "다른 사용자가 먼저 수정했습니다. 최신 내용을 다시 불러온 뒤 수정하세요."
 DATE_RE = re.compile(r"\d{4}\.\s?\d{1,2}\.\s?\d{1,2}\.?")
@@ -257,6 +257,54 @@ def ev_out(e: CardNewsEvidence, el: CardNewsElement | None = None) -> dict:
     }
 
 
+DOC_NO_RE = re.compile(r"/(\d{4}-\d{4,6})(?:/|$)")
+STATE_LABEL = {"verified": "연구원 검증됨", "not_verified": "근거 미검증", "stale": "검증 후 수정됨·재검증 필요", "none": "근거 없음"}
+
+
+def _short_org(org: str | None, url: str) -> str:
+    if org:
+        m = re.search(r"\(([A-Za-z0-9 .&-]{2,20})\)", org)
+        if m:
+            return m.group(1)
+        return org[:8]
+    return re.sub(r"^https?://(www\.)?", "", url).split("/")[0][:16]
+
+
+def source_entries(db: Session, evs: list[CardNewsEvidence], els: dict[str, CardNewsElement]) -> list[dict]:
+    """카드의 근거를 출처 표기용 항목으로 정리한다(같은 URL은 한 번만). 발표일·문서번호는 원문 식별에 쓰며, 알 수 없으면 비운다."""
+    out: dict[str, dict] = {}
+    for e in evs:
+        entry = out.get(e.source_url)
+        el = els.get(e.element_key)
+        state = ev_out(e, el)["verification_status"]
+        if entry is None:
+            m = DOC_NO_RE.search(e.source_url)
+            published = None
+            doc_title = None
+            if e.source_document_id:
+                doc = db.get(SourceDocument, e.source_document_id)
+                if doc is not None:
+                    published = doc.published_at.date().isoformat() if doc.published_at else None
+                    doc_title = doc.title
+            if published is None and e.source_footnote_id:  # 수집 문서가 없는 근거는 원고 각주의 발표일을 쓴다
+                fn = db.get(ManuscriptFootnote, e.source_footnote_id)
+                if fn is not None and fn.published_at:
+                    published = fn.published_at.date().isoformat()
+            doc_no = m.group(1) if m else None
+            label = f"{_short_org(e.source_org, e.source_url)} {doc_no}" if doc_no else _short_org(e.source_org, e.source_url)
+            out[e.source_url] = {"label": label.strip(), "url": e.source_url, "org": e.source_org, "doc_no": doc_no,
+                                 "doc_title": doc_title, "published": published, "states": {state}, "elements": {e.element_key}}
+        else:
+            entry["states"].add(state)
+            entry["elements"].add(e.element_key)
+    result = []
+    for entry in out.values():
+        entry["state"] = "verified" if entry["states"] == {"verified"} else ("stale" if "stale" in entry["states"] else "not_verified")
+        entry["states"], entry["elements"] = sorted(entry["states"]), sorted(entry["elements"])
+        result.append(entry)
+    return result
+
+
 def card_inputs(db: Session, cn: CardNews, *, for_export: bool) -> tuple[list[dict], dict]:
     """장면 빌더에 넘길 카드 입력과 공통 ctx를 만든다."""
     cards = _cards(db, cn)
@@ -274,8 +322,10 @@ def card_inputs(db: Session, cn: CardNews, *, for_export: bool) -> tuple[list[di
         chart_verified = False
         if "chart" in els:
             chart_verified = _evidence_state(els["chart"], [e for e in evidences if e.card_id == card.id and e.element_key == "chart"]) == "verified"
+        sources = source_entries(db, [e for e in evidences if e.card_id == card.id], els)
         out.append({"id": str(card.id), "kind": card.kind, "bg_color": card.bg_color, "elements": elem_dicts, "index": idx,
-                    "total": len(cards), "chart_verified": chart_verified})
+                    "total": len(cards), "chart_verified": chart_verified, "sources": sources,
+                    "links": [{"label": s["label"], "url": s["url"]} for s in sources] if for_export else []})
     ctx = {"for_export": for_export, "labels": labels, "is_pilot": cn.is_pilot, "is_synthetic": cn.is_synthetic,
            "iitp_confirmed": cn.iitp_confirmed}
     return out, ctx
@@ -289,6 +339,7 @@ def build_scenes(db: Session, cn: CardNews, *, for_export: bool) -> list[dict]:
         c = dict(ctx, chart_verified=card["chart_verified"])
         scene = card_news_scene.build_card_scene(cn.width_cm, cn.height_cm, cfg, cn.template_key, card, c)
         scene["card_id"] = card["id"]
+        scene["sources"] = card["sources"]
         scenes.append(scene)
     return scenes
 
@@ -347,6 +398,8 @@ def run_preflight(db: Session, cn: CardNews) -> list[dict]:
             title_sizes.add(sz.get("size"))
         if card.kind == "body" and not (els.get("heading") and (els["heading"].text or "").strip()):
             add("error", "missing_title", "카드 제목이 없습니다", idx, "heading")
+    for n in followup_service.open_notices_for(db, "card_news", cn.id):
+        add("error", "followup_pending", f"후속 규정이 발견되어 재검토가 필요합니다(연구원 확인 전): {n['title'][:60]}")
     if len(title_sizes) > 1:
         add("warn", "inconsistent_style", "카드마다 제목 글자 크기가 다릅니다 — 디자인 일관성을 확인하세요")
     for idx, scene in enumerate(scenes, start=1):
@@ -410,6 +463,7 @@ def detail(db: Session, cn: CardNews) -> dict:
         "reviewer_user_id": str(cn.reviewer_user_id) if cn.reviewer_user_id else None,
         "created_by_user_id": str(cn.created_by_user_id), "updated_at": cn.updated_at.isoformat(),
         "cards": card_out, "preflight": issues, "blocking": blocking(issues),
+        "followups_open": followup_service.open_notices_for(db, "card_news", cn.id),
         "size_note": "작업용 기본 규격 7×15.62cm — IITP 공식 발간 규격으로 확인된 값이 아닙니다",
     }
 
@@ -626,6 +680,7 @@ def generate_export(db: Session, cn: CardNews, *, file_format: str, user_id: uui
                 for n, png in enumerate(pngs, start=1):
                     (folder / f"card-{n:02d}.png").write_bytes(png)
                     zf.writestr(f"{safe}_card-{n:02d}.png", png)
+                zf.writestr(f"{safe}_출처목록.txt", sources_text(cn, scenes, sizes), )
             payload = buf.getvalue()
             file_name = f"{safe}_{stamp}_{tag}_png.zip"
             export.png_width_px, export.png_height_px = sizes[0]
@@ -649,6 +704,26 @@ def generate_export(db: Session, cn: CardNews, *, file_format: str, user_id: uui
         db.commit()
     db.refresh(export)
     return export
+
+
+def sources_text(cn: CardNews, scenes: list[dict], sizes: list[tuple[int, int]]) -> str:
+    """PNG는 클릭할 수 없으므로 카드별 출처(원문 URL·발표일·문서번호·검증 상태)를 텍스트로 함께 제공한다."""
+    lines = [f"{cn.title}", "카드뉴스 출처 목록 — 내부 검토용(IITP 공식 확인 전)이며 검증 상태는 내부 검증 기록 기준입니다."]
+    if cn.is_synthetic:
+        lines.append("※ 합성 테스트 데이터가 포함되어 있습니다 — 실제 정책·통계가 아닙니다.")
+    if cn.is_pilot:
+        lines.append("※ 시범 카드뉴스입니다 — 실제 발간물이 아닙니다.")
+    for n, scene in enumerate(scenes, start=1):
+        w, h = sizes[n - 1] if n - 1 < len(sizes) else (0, 0)
+        lines += ["", f"[카드 {n}/{len(scenes)}] {w}×{h}px"]
+        srcs = scene.get("sources") or []
+        if not srcs:
+            lines.append("  연결된 원문 근거 없음")
+        for src in srcs:
+            lines.append("  - " + " · ".join(x for x in (src["label"], src.get("doc_title"), f"발표일 {src['published']}" if src.get("published") else None,
+                                                          STATE_LABEL.get(src["state"], src["state"])) if x))
+            lines.append(f"    {src['url']}")
+    return "\n".join(lines) + "\n"
 
 
 def export_out(e: CardNewsExport) -> dict:

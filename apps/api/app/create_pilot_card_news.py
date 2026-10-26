@@ -86,10 +86,13 @@ def _export_all(db, cn, user, out: Path, prefix: str):
     with zipfile.ZipFile(results["png"].file_path) as zf:
         folder = out / f"{prefix}_png"
         folder.mkdir(parents=True, exist_ok=True)
-        for n, name in enumerate(sorted(zf.namelist()), start=1):
+        for n, name in enumerate(sorted(x for x in zf.namelist() if x.endswith(".png")), start=1):
             path = folder / f"card-{n:02d}.png"
             path.write_bytes(zf.read(name))
             pngs.append(path)
+        for name in zf.namelist():
+            if name.endswith("출처목록.txt"):
+                (folder / "출처목록.txt").write_bytes(zf.read(name))
     v = json.loads(results["png"].validation_json)
     issues = [i for i in v["issues"] if i["level"] != "info"]
     print(f"  {prefix}: 카드 {len(pngs)}장, PPTX {results['pptx'].file_size}B, PNG {results['png'].png_width_px}×{results['png'].png_height_px}px, 점검 {len(issues)}건")

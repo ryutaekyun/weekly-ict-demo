@@ -26,7 +26,7 @@ from app.models.manuscript_footnote import ManuscriptFootnote
 from app.models.manuscript_version import ManuscriptVersion
 from app.models.report import Report, ReportExport, ReportItem, ReportTemplate
 from app.models.source_document import SourceDocument
-from app.services import report_docx, report_pdf
+from app.services import followup_service, report_docx, report_pdf
 
 GENERAL_PARTS = [
     ("key_issue", "주요 이슈", True),
@@ -44,7 +44,7 @@ PART_PAGE_LIMIT = {"key_issue": 10, "country_trend": 10}  # 발간 지침: 파�
 REPORT_KIND_LABEL = {"general": "주간 AI·ICT 동향 (일반호)", "special": "주간 AI·ICT 동향 (특집호)", "summary": "주간 AI·ICT 동향 요약본"}
 
 # 출력용 확정을 막는 점검 코드(승인권자의 예외 사유가 있으면 통과 가능)
-BLOCKING_CODES = {"required_part_missing", "empty_manuscript", "unverified_footnotes", "manuscript_not_approved", "summary_stale"}
+BLOCKING_CODES = {"required_part_missing", "empty_manuscript", "unverified_footnotes", "manuscript_not_approved", "summary_stale", "followup_pending"}
 
 
 class ExportInProgressError(Exception):
@@ -201,6 +201,7 @@ def build_snapshot(db: Session, report: Report) -> dict:
             if (report.publish_date or edition) else None,
             "iitp_confirmed": report.iitp_confirmed, "is_pilot": is_pilot, "status": report.status,
             "layout": report.layout, "exception": bool(report.finalize_exception_reason),
+            "followups_open": [n["title"] for n in followup_service.open_notices_for(db, "report", report.id)],
         },
         "template": {
             "id": str(template.id), "name": template.name, "version": template.version,
@@ -238,6 +239,8 @@ def run_preflight(snapshot: dict) -> list[dict]:
     def add(level: str, code: str, message: str, part: str | None = None) -> None:
         issues.append({"level": level, "code": code, "message": message, "part": part})
 
+    for title in snapshot["report"].get("followups_open", []):
+        add("error", "followup_pending", f"후속 규정이 발견되어 재검토가 필요합니다(연구원 확인 전): {title[:60]}")
     defs = GENERAL_PARTS if rtype == "general" else SUMMARY_PARTS if rtype == "summary" else []
     required = {k: (label, req) for k, label, req in defs}
     for part in snapshot["parts"]:

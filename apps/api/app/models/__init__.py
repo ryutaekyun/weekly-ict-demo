@@ -1,4 +1,5 @@
 from app.models.user import User
+from app.models.followup import FollowupNotice, FollowupAck
 from app.models.source import Source
 from app.models.collection_run import CollectionRun
 from app.models.source_document import SourceDocument
@@ -50,6 +51,8 @@ __all__ = [
     "ReportExport",
     "ReportTemplate",
     "CardNews",
+    "FollowupNotice",
+    "FollowupAck",
     "CardNewsCard",
     "CardNewsElement",
     "CardNewsEvidence",

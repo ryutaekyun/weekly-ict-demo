@@ -225,3 +225,60 @@ test("시나리오 M — 검토 요청 → 수정 요청 → 의견 해결 → �
   await expect(page.getByLabel("카드뉴스 제목")).toHaveValue(/\(수정본\)/);
   await expect(page.getByText("작성 중", { exact: true }).first()).toBeVisible();
 });
+
+test("시나리오 N — 후속 규정 등록 → 카드뉴스 '후속 규정 발견·재검토 필요' 표시·확정 차단 → 연구원 확인 후 해소", async ({ page }) => {
+  await login(page, E2E_ADMIN);
+  const stamp = Date.now();
+  const docNo = `E2E-${stamp}`;
+  const sentence = `후속 규정 점검 문장 ${stamp} 입니다 시행일은 2025.2.18.임`;
+  await startManuscript(page, `E2E후속원고${stamp}`, sentence);
+  await makeReportWith(page, `E2E 후속 규정 보고서 ${stamp}`);
+  await page.goto("/card-news");
+  await page.getByRole("radio", { name: "기존 보고서에서 만들기" }).check();
+  await page.getByLabel("원본 보고서").selectOption({ label: `E2E 후속 규정 보고서 ${stamp}` });
+  await page.getByLabel(/^문장 선택: /).first().check();
+  await page.getByRole("radio", { name: /^A\./ }).check();
+  await page.getByLabel("카드뉴스 제목").fill(`E2E 후속 카드뉴스 ${stamp}`);
+  await page.getByRole("button", { name: "카드뉴스 만들기" }).click();
+  await page.waitForURL(/\/card-news\/[0-9a-f-]+$/);
+  const url = page.url();
+  await page.getByRole("button", { name: /^카드 2 / }).click();
+  await page.getByRole("button", { name: "원문 근거" }).click();
+  await page.getByLabel("핵심 내용 1 근거 URL").fill(`https://www.federalregister.gov/documents/${docNo}/test`);
+  await page.getByLabel("핵심 내용 1 근거 기관").fill("NHTSA");
+  await page.getByRole("button", { name: "근거 연결" }).first().click();
+  await expect(page.getByText("근거를 연결했습니다(아직 검증 전)")).toBeVisible();
+  await expect(page.getByRole("region", { name: "후속 규정 발견·재검토 필요" })).toHaveCount(0); // 등록 전에는 표시 없음
+
+  // 후속 규정 등록 — 영향받는 산출물에 표시만 되고 내용은 바뀌지 않는다
+  await page.goto("/followups");
+  await page.getByLabel("알림 제목").fill(`E2E 시행일 연기 ${stamp}`);
+  await page.getByLabel("기존 문서 번호").fill(docNo);
+  await page.getByLabel("후속 문서 번호").fill("2025-02582");
+  await page.getByLabel("후속 문서 URL").fill("https://www.federalregister.gov/d/2025-02582");
+  await page.getByLabel("변경 요약").fill("시행일이 2025.3.20.으로 연기됨");
+  await page.getByLabel("변경 항목").fill("시행일");
+  await page.getByLabel("변경 전").fill("2025.2.18.");
+  await page.getByLabel("변경 후").fill("2025.3.20.");
+  await page.getByRole("button", { name: "알림 등록" }).click();
+  await expect(page.getByText(/영향받는 산출물 \d+건에 '재검토 필요'가 표시됩니다/)).toBeVisible();
+
+  await page.goto(url);
+  const banner = page.getByRole("region", { name: "후속 규정 발견·재검토 필요" });
+  await expect(banner).toBeVisible();
+  await expect(banner).toContainText("2025.3.20.");
+  await page.getByRole("button", { name: /^카드 2 / }).click();
+  await expect(page.getByLabel("핵심 내용 1", { exact: true })).toHaveValue(sentence); // 카드 내용은 자동으로 바뀌지 않는다
+
+  // 사유 없이는 확인 불가 → 사유 입력 후 확인하면 배너가 사라진다
+  await banner.getByRole("button", { name: "영향 없음 확인" }).click();
+  await expect(page.getByText("확인 사유를 3자 이상 입력하세요")).toBeVisible();
+  await banner.getByLabel(/^확인 사유/).fill("카드 문장을 정정하고 근거를 다시 확인함");
+  await banner.getByRole("button", { name: "수정 반영 확인" }).click();
+  await expect(page.getByRole("region", { name: "후속 규정 발견·재검토 필요" })).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByRole("region", { name: "후속 규정 발견·재검토 필요" })).toHaveCount(0); // 새로고침 후에도 확인 기록 유지
+  await page.goto("/followups");
+  await page.getByText(`E2E 시행일 연기 ${stamp}`).click();
+  await expect(page.getByText("확인됨(수정 반영)")).toBeVisible();
+});

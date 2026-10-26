@@ -462,8 +462,10 @@ def test_png_export_renders_real_high_resolution_cards_same_ratio_as_pptx(client
     assert validation["rendered"] is True
     assert abs(validation["aspect_ratio_png"] - validation["aspect_ratio_pptx"]) < 0.01  # PPTX와 같은 비율
     zf = zipfile.ZipFile(io.BytesIO(client.get(f"/card-news/{cn['id']}/exports/{e['id']}/download", headers=h).content))
-    names = sorted(zf.namelist())
-    assert len(names) == 3 and all(n.endswith(".png") for n in names)
+    names = sorted(n for n in zf.namelist() if n.endswith(".png"))
+    assert len(names) == 3
+    texts = [n for n in zf.namelist() if n.endswith("출처목록.txt")]
+    assert len(texts) == 1 and "카드 1/3" in zf.read(texts[0]).decode("utf-8")  # PNG는 클릭할 수 없으므로 출처 목록 파일을 함께 제공
     from PIL import Image
 
     for name in names:

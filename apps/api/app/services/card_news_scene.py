@@ -23,7 +23,7 @@ def _char_em(ch: str) -> float:
     o = ord(ch)
     if o >= 0x2E80 or 0x1100 <= o <= 0x11FF or 0x3130 <= o <= 0x318F:
         return 1.05  # 글꼴 대체 시 약간 넓어질 수 있어 보수적으로 추정
-    if ch == " ":
+    if ch in (" ", " "):
         return 0.28
     if ch.isdigit():
         return 0.58
@@ -34,6 +34,45 @@ def _char_em(ch: str) -> float:
     if ch in ".,:;'!|":
         return 0.3
     return 0.55
+
+
+def keep_bracket_together(text: str, size_pt: float, width_cm: float, bold: bool = False) -> str:
+    """문장 앞머리의 [..] 묶음(예: "[합성 테스트 데이터]")이 줄바꿈으로 쪼개지지 않도록 줄바꿈 금지 공백으로 잇는다.
+    묶음이 한 줄 너비보다 길면(글자 중간에서 끊기게 되므로) 원래 공백을 그대로 둔다."""
+    m = re.match(r"^(\[[^\]\n]{1,40}\])", text)
+    if not m:
+        return text
+    inner = max(width_cm - 2 * PAD_CM, 0.1) * PT_PER_CM
+    if sum(_char_em(c) for c in m.group(1)) * size_pt * (1.06 if bold else 1.0) > inner:
+        return text
+    return m.group(1).replace(" ", " ") + text[m.end():]
+
+
+ASCII_GAP = re.compile(r"(?<=[A-Za-z0-9)])[ ](?=[A-Za-z0-9(])|(?<=No\.)[ ](?=\d)")
+
+
+def keep_ascii_tokens(text: str) -> str:
+    """영문 약어·번호·단위가 줄바꿈에서 쪼개지지 않게(예: 'FMVSS 305a', 'No. 305a') 영문·숫자 사이 공백을 줄바꿈 금지 공백으로 바꾼다."""
+    return ASCII_GAP.sub(" ", text)
+
+
+def fit_source_links(links: list[dict], size_pt: float, width_cm: float) -> tuple[list[dict], str]:
+    """출처 한 줄에 들어가도록 같은 기관의 반복 표기를 줄이고, 넘치면 '외 n건'으로 줄인다(전체 목록은 슬라이드 노트·출처 파일에 있음)."""
+    shown, prev_org = [], None
+    for lk in links:
+        label = lk["label"]
+        org, _, rest = label.partition(" ")
+        if prev_org == org and rest:
+            label = rest  # 같은 기관이면 문서번호만
+        prev_org = org
+        cand = shown + [{"label": label, "url": lk["url"]}]
+        if text_lines("출처: " + ", ".join(c["label"] for c in cand), size_pt, width_cm) > 1 and shown:
+            break
+        shown = cand
+    text = "출처: " + ", ".join(c["label"] for c in shown)
+    if len(shown) < len(links):
+        text += f" 외 {len(links) - len(shown)}건"
+    return shown, text
 
 
 def text_lines(text: str, size_pt: float, width_cm: float, bold: bool = False) -> int:
@@ -125,8 +164,10 @@ class SceneBuilder:
             x, y, w, h = self._x(x), self._y(y), self._x(w), self._y(h)
         self.items.append({"type": "rect", "x": x, "y": y, "w": w, "h": h, "fill": fill, "line": line, "radius": radius, "name": name})
 
-    def ellipse(self, x, y, d, fill, name=None):
-        self.items.append({"type": "ellipse", "x": self._x(x), "y": self._y(y), "w": self._x(d), "h": self._x(d), "fill": fill, "name": name})
+    def ellipse(self, x, y, d, fill, name=None, deco=False):
+        # deco=True: 카드 가장자리에 걸쳐 잘리는 배경 장식(의도된 디자인) — 카드 이탈 점검 대상에서 제외한다
+        self.items.append({"type": "ellipse", "x": self._x(x), "y": self._y(y), "w": self._x(d), "h": self._x(d), "fill": fill,
+                           "name": "장식" if deco else name, "deco": deco})
 
     def line(self, x1, y1, x2, y2, color, width_pt=1.0):
         self.items.append({"type": "line", "x1": self._x(x1), "y1": self._y(y1), "x2": self._x(x2), "y2": self._y(y2), "color": color, "width_pt": width_pt})
@@ -147,7 +188,13 @@ class SceneBuilder:
                 return None
             raw, placeholder = f"[{self.ctx.get('labels', {}).get(key, key)} 입력]", True
         text = (prefix + raw + suffix) if not placeholder else raw
+        links = None
+        if key == "source" and not placeholder and self.card.get("links"):
+            links, text = fit_source_links(self.card["links"], st.get("size", size) * (self.fs if "size" not in st else 1.0), w)
         size = st.get("size", size)
+        shown_size = size * (self.fs if "size" not in st else 1.0)
+        text = keep_bracket_together(text, shown_size, box.get("w", self._x(w)), st.get("bold", bold))
+        text = keep_ascii_tokens(text)
         item = {
             "type": "text", "key": key, "text": text, "placeholder": placeholder,
             "x": box.get("x", self._x(x)), "y": box.get("y", self._y(y)), "w": box.get("w", self._x(w)), "h": box.get("h", self._y(h)),
@@ -155,6 +202,8 @@ class SceneBuilder:
             "color": "9AA3B2" if placeholder else st.get("color", color), "align": st.get("align", align), "valign": valign,
             "font": self.font, "spacing": spacing,
         }
+        if links:
+            item["links"] = links
         self.items.append(item)
         return item
 
@@ -169,13 +218,15 @@ class SceneBuilder:
     # -- 공통 장식 --
     def footer_note(self, color):
         notes = []
-        if self.ctx.get("is_synthetic"):
-            notes.append("합성")
         if self.ctx.get("is_pilot"):
             notes.append("시범")
         if not self.ctx.get("iitp_confirmed"):
             notes.append("내부용·IITP 미확인")
-        if notes:
+        if self.ctx.get("is_synthetic"):
+            # 실제 정책·통계로 오인되지 않도록 눈에 띄는 띠로 표시한다(카드 배경과 무관하게 같은 색)
+            self.rect(0, 14.9, 7.0, 0.72, fill="FFE9A8", name="합성 표시 띠")
+            self.label(0.55, 14.92, 5.9, 0.68, "합성 테스트 데이터 · 실제 정책·통계 아님\n" + " · ".join(notes), 7, "6B5200", bold=True, valign="middle")
+        elif notes:
             self.label(0.55, 15.1, 5.9, 0.42, " · ".join(notes), 7, color, valign="middle")
 
     def number_tag(self, color, x=5.35):
@@ -192,6 +243,7 @@ def _cover(b: SceneBuilder, variant: str) -> str:
     accent, soft = _accent(cfg)
     navy, white = cfg["navy"], cfg["white"]
     m = 0.55
+    b.number_tag("AEB9CF" if variant in ("A", "D") else cfg["gray_text"])
     if variant == "A":
         bg = navy
         b.rect(m, 1.0, 2.9, 0.62, fill=white, radius=0.15)
@@ -199,7 +251,7 @@ def _cover(b: SceneBuilder, variant: str) -> str:
         b.text("title", m, 2.3, 5.9, 6.2, 19, white, bold=True)
         b.rect(m, 8.9, 1.4, 0.12, fill=accent)
         b.text("subtitle", m, 9.3, 5.9, 3.2, 10, "D5DDEC")
-        b.text("source", m, 13.5, 5.9, 1.5, 7.5, "C0CADD", prefix="출처: ")
+        b.text("source", m, 13.5, 5.9, 1.3, 7.5, "C0CADD", prefix="출처: ")
         b.footer_note("C0CADD")
     elif variant == "B":
         bg = cfg["white"]
@@ -211,29 +263,29 @@ def _cover(b: SceneBuilder, variant: str) -> str:
         for i, yy in enumerate((9.6, 11.3, 13.0)):
             b.ellipse(1.0, yy, 0.4, accent if i == 0 else cfg["navy_soft"])
         b.text("subtitle", 1.95, 9.4, 4.5, 3.4, 9.5, navy)
-        b.text("source", m, 13.6, 5.9, 1.4, 7.5, cfg["gray_text"], prefix="출처: ")
+        b.text("source", m, 13.6, 5.9, 1.2, 7.5, cfg["gray_text"], prefix="출처: ")
         b.footer_note(cfg["gray_text"])
     elif variant == "C":
         bg = soft
-        b.ellipse(3.4, 9.2, 4.6, cfg["white"])
-        b.ellipse(-1.6, 11.2, 4.2, cfg["navy_soft"])
+        b.ellipse(3.4, 9.2, 4.6, cfg["white"], deco=True)
+        b.ellipse(-1.6, 11.2, 4.2, cfg["navy_soft"], deco=True)
         b.rect(m, 1.0, 2.9, 0.62, fill=navy, radius=0.15)
         b.text("badge", m, 1.0, 2.9, 0.62, 7.5, white, bold=True, align="center", valign="middle")
         b.rect(m, 2.5, 0.14, 4.6, fill=accent)
         b.text("title", m + 0.4, 2.4, 5.5, 5.6, 19, navy, bold=True)
         b.text("subtitle", m, 8.3, 5.9, 3.0, 10, navy)
-        b.text("source", m, 13.5, 5.9, 1.5, 7.5, cfg["gray_text"], prefix="출처: ")
+        b.text("source", m, 13.5, 5.9, 1.3, 7.5, cfg["gray_text"], prefix="출처: ")
         b.footer_note(cfg["gray_text"])
     else:  # D
         bg = navy
-        b.ellipse(3.0, -1.8, 5.6, "27406B")
-        b.ellipse(-1.2, 9.6, 4.6, "27406B")
+        b.ellipse(3.0, -1.8, 5.6, "27406B", deco=True)
+        b.ellipse(-1.2, 9.6, 4.6, "27406B", deco=True)
         b.rect(m, 1.0, 2.9, 0.62, fill=white, radius=0.15)
         b.text("badge", m, 1.0, 2.9, 0.62, 7.5, navy, bold=True, align="center", valign="middle")
         b.text("title", m, 3.6, 5.9, 5.0, 19, white, bold=True)
         b.rect(m, 8.9, 1.4, 0.12, fill=accent)
         b.text("subtitle", m, 9.3, 5.9, 3.2, 10, "D5DDEC")
-        b.text("source", m, 13.5, 5.9, 1.5, 7.5, "C0CADD", prefix="출처: ")
+        b.text("source", m, 13.5, 5.9, 1.3, 7.5, "C0CADD", prefix="출처: ")
         b.footer_note("C0CADD")
     return bg
 
@@ -244,12 +296,13 @@ def _closing(b: SceneBuilder, variant: str) -> str:
     navy, white = cfg["navy"], cfg["white"]
     m = 0.55
     bg = navy
+    b.number_tag("AEB9CF")
     if variant == "B":
         b.line(0.9, 1.0, 0.9, 13.0, accent, 2.0)
     elif variant == "C":
         b.rect(0, 0, 7.0, 0.5, fill=accent)
     elif variant == "D":
-        b.ellipse(3.6, 10.6, 5.2, "27406B")
+        b.ellipse(3.6, 10.6, 5.2, "27406B", deco=True)
     else:
         b.rect(m, 1.0, 1.4, 0.12, fill=accent)
     x0, w0 = (1.4, 5.1) if variant == "B" else (m, 5.9)
@@ -259,7 +312,7 @@ def _closing(b: SceneBuilder, variant: str) -> str:
     b.line(x0, 8.0, x0 + 1.8, 8.0, accent, 1.5)
     b.label(x0, 8.3, w0, 0.5, {"A": "시사점·후속 과제", "B": "향후 일정", "C": "국내 시사점", "D": "산업적 의미"}[variant], 8, light, bold=True)
     b.text("follow_up", x0, 8.9, w0, 3.8, 9.5, "D5DDEC")
-    b.text("source", x0, 13.1, w0, 1.8, 7.5, "C0CADD", prefix="출처: ")
+    b.text("source", x0, 13.1, w0, 1.7, 7.5, "C0CADD", prefix="출처: ")
     b.footer_note("C0CADD")
     return bg
 
@@ -279,16 +332,22 @@ def _body_A(b: SceneBuilder) -> str:
     navy, white = cfg["navy"], cfg["white"]
     m, cw = 0.55, 5.9
     _header(b)
-    for i in (1, 2, 3):
-        y0 = 3.0 + (i - 1) * 3.3
-        b.rect(m, y0, cw, 3.1, fill=white, line=cfg["border"], radius=0.18)
+    filled = [i for i in (1, 2, 3) if ((b.elements.get(f"content_{i}") or {}).get("text") or "").strip()]
+    shown = filled if b.export else [1, 2, 3]  # 편집 화면은 비어 있어도 입력 위치를 보여주고, 출력에서는 빈 항목을 숨긴다
+    n = max(len(shown), 1)
+    gap = 0.2
+    box_h = min((9.75 - gap * (n - 1)) / n, 4.4)
+    start = 3.0 + (9.75 - (n * box_h + gap * (n - 1))) / 2  # 남은 항목은 머리글과 시사점 사이에 균형 있게 배치
+    for pos, i in enumerate(shown):
+        y0 = start + pos * (box_h + gap)
+        b.rect(m, y0, cw, box_h, fill=white, line=cfg["border"], radius=0.18)
         b.ellipse(m + 0.2, y0 + 0.25, 0.75, dark)
-        b.label(m + 0.2, y0 + 0.25, 0.75, 0.75, str(i), 9, white, bold=True, align="center")
-        b.text(f"content_{i}", m + 1.2, y0 + 0.2, cw - 1.4, 2.7, 9, navy)
+        b.label(m + 0.2, y0 + 0.25, 0.75, 0.75, str(pos + 1 if b.export else i), 9, white, bold=True, align="center")
+        b.text(f"content_{i}", m + 1.2, y0 + 0.2, cw - 1.4, box_h - 0.4, 9, navy)
     b.rect(m, 12.95, cw, 1.5, fill=soft, radius=0.15)
     b.label(m + 0.2, 13.0, 1.6, 0.4, "시사점", 7.5, dark, bold=True)
     b.text("implication", m + 0.2, 13.38, cw - 0.4, 1.0, 8, navy)
-    b.text("source", m, 14.6, cw, 0.42, 7, cfg["gray_text"], prefix="출처: ", valign="middle")
+    b.text("source", m, 14.45, cw, 0.42, 7, cfg["gray_text"], prefix="출처: ", valign="middle")
     b.footer_note(cfg["gray_text"])
     return cfg["bg"]
 
@@ -318,7 +377,7 @@ def _body_B(b: SceneBuilder) -> str:
         b.label(1.95, y, 2.3, 0.4, STAGE_KINDS[kind], 7, white, bold=True, align="center")
         b.text(f"stage_{i}_date", 1.95, y + 0.45, 4.5, 0.5, 9.5, navy, bold=True, valign="middle")
         b.text(f"stage_{i}_text", 1.95, y + 0.98, 4.5, 1.2, 8.5, "2C3A55")
-    b.text("source", m, 14.6, 5.9, 0.42, 7, cfg["gray_text"], prefix="출처: ", valign="middle")
+    b.text("source", m, 14.45, 5.9, 0.42, 7, cfg["gray_text"], prefix="출처: ", valign="middle")
     b.footer_note(cfg["gray_text"])
     return cfg["white"]
 
@@ -355,7 +414,7 @@ def _body_C(b: SceneBuilder) -> str:
         b.label(m + 0.15, y + 0.02, 3.0, 0.4, label, 7.5, cfg["accent_dark"], bold=True)
         b.text(key, m + 0.15, y + 0.38, cw - 0.3, 0.92, 7.5, navy)
         y += 1.4
-    b.text("source", m, 14.6, cw, 0.42, 7, cfg["gray_text"], prefix="출처: ", valign="middle")
+    b.text("source", m, 14.45, cw, 0.42, 7, cfg["gray_text"], prefix="출처: ", valign="middle")
     b.footer_note(cfg["gray_text"])
     return cfg["bg"]
 
@@ -413,7 +472,7 @@ def _body_D(b: SceneBuilder) -> str:
         msg_h = min(14.3 - (top + 3.4), 5.6) if top < 5 else 3.6
         b.rect(m, top + 3.4, cw, msg_h, fill=navy, radius=0.15)
         b.text("message", m + 0.25, top + 3.5, cw - 0.5, msg_h - 0.2, 13, white, bold=True, valign="middle")
-    b.text("source", m, 14.6, cw, 0.42, 7, cfg["gray_text"], prefix="출처: ", valign="middle")
+    b.text("source", m, 14.45, cw, 0.42, 7, cfg["gray_text"], prefix="출처: ", valign="middle")
     b.footer_note(cfg["gray_text"])
     return cfg["bg"]
 
@@ -461,6 +520,10 @@ def check_scene(scene: dict, cfg: dict) -> list[dict]:
             add("error", "text_overflow", f"'{name}' 글이 상자보다 깁니다(필요 {need:.1f}cm > {t['h']:.1f}cm) — 카드 분할·문장 축약이 필요합니다", t.get("key"))
         if t["x"] < -0.01 or t["y"] < -0.01 or t["x"] + t["w"] > W + 0.01 or t["y"] + t["h"] > H + 0.01:
             add("error", "out_of_bounds", f"'{name}' 요소가 카드 밖으로 나갑니다", t.get("key"))
+    for it in scene["items"]:
+        if it["type"] in ("rect", "ellipse") and not it.get("deco"):
+            if it["x"] < -0.01 or it["y"] < -0.01 or it["x"] + it["w"] > W + 0.01 or it["y"] + it["h"] > H + 0.01:
+                add("error", "out_of_bounds", f"도형 '{it.get('name') or it['type']}'이(가) 카드 밖으로 나갑니다")
     # 텍스트 상자 겹침(서로 다른 요소)
     for a_i in range(len(texts)):
         for b_i in range(a_i + 1, len(texts)):

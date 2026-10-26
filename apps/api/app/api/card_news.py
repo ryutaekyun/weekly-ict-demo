@@ -602,6 +602,10 @@ def approve(card_news_id: uuid.UUID, payload: ApproveBody, db: Session = Depends
     cn = _get(db, card_news_id)
     if cn.status != "review_requested":
         raise HTTPException(status.HTTP_409_CONFLICT, "검토 요청된 카드뉴스만 내부 확정할 수 있습니다")
+    if cn.is_synthetic:  # 합성 테스트 데이터는 실제 발간용으로 내부 확정할 수 없다(예외 승인으로도 불가)
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail={
+            "message": "합성 테스트 데이터가 포함된 카드뉴스는 내부 확정할 수 없습니다 — 개발용 출력 테스트로만 사용하세요",
+            "blocking": [{"message": "합성 테스트 데이터 포함"}]})
     issues = svc.run_preflight(db, cn)
     block = svc.blocking(issues)
     reason = (payload.exception_reason or "").strip()

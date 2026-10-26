@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import type { Editor } from "@tiptap/react";
 import AppShell from "@/components/AppShell";
+import FollowupBanner from "@/components/FollowupBanner";
 import ManuscriptEditor from "@/components/ManuscriptEditor";
 import { collectFootnoteOrder } from "@/lib/footnoteMark";
 import {
@@ -343,6 +344,7 @@ export default function ManuscriptWorkspacePage() {
         <Link href="/manuscripts" style={{ fontSize: 13 }}>← 연구·집필 작업실 목록으로</Link>
       </div>
 
+      <FollowupBanner entityType="manuscript" entityId={manuscript.id} canAck={isAuthor || isPrivileged} />
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, gap: 10, flexWrap: "wrap" }}>
         <input
           ref={titleRef}
