@@ -45,3 +45,31 @@ def require_roles(*roles: UserRole):
         return user
 
     return dependency
+
+
+# ---- 외부 전문가(집필·검토) 접근 제한 ------------------------------------------
+EXTERNAL_ROLES = (UserRole.AUTHOR, UserRole.EXT_REVIEWER)
+EXTERNAL_ALLOWED_PREFIXES = ("/auth", "/journal/portal", "/docs", "/openapi.json", "/health")
+
+
+def guard_external_users(
+    request: Request,
+    db: Session = Depends(get_db),
+    bearer_token: str | None = Depends(oauth2_scheme),
+) -> None:
+    """외부 집필·검토 전문가 계정은 전용 포털(/journal/portal)과 인증 API 외의 모든 내부 API에 접근할 수 없다.
+
+    개별 라우터가 역할을 따로 확인하지 않는 조회 API(후보주제·이슈·문서 등)까지 일괄 차단하기 위한 앱 전역 의존성이다.
+    """
+    token = bearer_token or request.cookies.get(ACCESS_TOKEN_COOKIE)
+    if not token:
+        return
+    payload = decode_access_token(token)
+    if payload is None or "sub" not in payload:
+        return
+    try:
+        user = db.get(User, uuid.UUID(payload["sub"]))
+    except ValueError:
+        return
+    if user is not None and user.role in EXTERNAL_ROLES and not request.url.path.startswith(EXTERNAL_ALLOWED_PREFIXES):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "외부 전문가 계정은 원고 포털만 사용할 수 있습니다")

@@ -431,6 +431,17 @@ class DocxBuilder:
                 _set_run_font(r, self.config["font_body"], 10)
                 r.italic = True
                 r.font.color.rgb = RGBColor(0x55, 0x60, 0x70)
+            if ms.get("byline"):  # 주간기술동향지: 저자(소속) 표시
+                p = self.doc.add_paragraph()
+                r = p.add_run(ms["byline"])
+                _set_run_font(r, self.config["font_body"], 10.5)
+                r.bold = True
+                r.font.color.rgb = RGBColor(0x44, 0x4F, 0x62)
+            if ms.get("summary"):
+                p = self.doc.add_paragraph()
+                r = p.add_run("요약  " + ms["summary"])
+                _set_run_font(r, self.config["font_body"], 10)
+                r.italic = True
             if ms.get("status_note"):
                 p = self.doc.add_paragraph()
                 r = p.add_run(ms["status_note"])

@@ -323,8 +323,14 @@ def card_inputs(db: Session, cn: CardNews, *, for_export: bool) -> tuple[list[di
         if "chart" in els:
             chart_verified = _evidence_state(els["chart"], [e for e in evidences if e.card_id == card.id and e.element_key == "chart"]) == "verified"
         sources = source_entries(db, [e for e in evidences if e.card_id == card.id], els)
+        unverified = any(s["state"] != "verified" for s in sources)
+        for spec in element_specs(cn.template_key, card.kind):  # 근거가 필요한 핵심 내용인데 연결된 근거가 없거나 검증되지 않은 경우도 포함
+            el = els.get(spec.key)
+            if spec.evidence and el is not None and not el.hidden and (el.text or "").strip():
+                if _evidence_state(el, [e for e in evidences if e.card_id == card.id and e.element_key == spec.key]) != "verified":
+                    unverified = True
         out.append({"id": str(card.id), "kind": card.kind, "bg_color": card.bg_color, "elements": elem_dicts, "index": idx,
-                    "total": len(cards), "chart_verified": chart_verified, "sources": sources,
+                    "total": len(cards), "chart_verified": chart_verified, "sources": sources, "unverified": unverified,
                     "links": [{"label": s["label"], "url": s["url"]} for s in sources] if for_export else []})
     ctx = {"for_export": for_export, "labels": labels, "is_pilot": cn.is_pilot, "is_synthetic": cn.is_synthetic,
            "iitp_confirmed": cn.iitp_confirmed}

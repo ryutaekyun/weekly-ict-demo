@@ -20,6 +20,8 @@ class UserRole(str, enum.Enum):
     REVIEWER = "reviewer"
     APPROVER = "approver"
     ADMIN = "admin"
+    AUTHOR = "author"  # 외부 집필 전문가(주간기술동향지 원고 포털 전용)
+    EXT_REVIEWER = "ext_reviewer"  # 외부 검토 전문가(배정된 원고 검토 포털 전용)
 
 
 class CandidateStatus(str, enum.Enum):

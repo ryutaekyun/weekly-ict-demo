@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     # 생성된 DOCX/PDF 출력본 저장 위치(서버 로컬, 공개 저장소에 올라가지 않음 — 인증된 API로만 내려받는다)
     export_dir: str = "./storage/exports"
 
+    # 주간기술동향지 외부 저자 원고·첨부 파일 저장 위치(서버 로컬, 공개 저장소에 올라가지 않음)
+    journal_dir: str = "./storage/journal"
+
     max_failed_login_attempts: int = 5
     login_lockout_minutes: int = 15
 

@@ -213,3 +213,45 @@ def test_followup_candidates_endpoint_does_not_register_anything_automatically(c
     monkeypatch.setattr(followup_service, "detect_candidates", lambda db, timeout=20.0: [{"followup_doc_number": "2025-02582"}])
     assert client.post("/followups/detect", headers=h).json()["candidates"] == [{"followup_doc_number": "2025-02582"}]
     assert client.get("/followups", headers=h).json() == []  # 후보는 연구원이 확인해 등록하기 전까지 알림이 아니다
+
+
+# ---------------------------------------------------------------- Phase 3-3.2 잔여 보완 ----
+def _scene_card(template, kind, elements, unverified=False, **ctx):
+    from app.services.card_news_schema import template_config
+
+    cfg = template_config(template)
+    card = {"kind": kind, "bg_color": None, "elements": elements, "index": 2, "total": 4, "unverified": unverified}
+    base = {"for_export": True, "labels": {}, "is_pilot": False, "is_synthetic": False, "iitp_confirmed": False, "chart_verified": False}
+    base.update(ctx)
+    return card_news_scene.build_card_scene(cfg["width_cm"], cfg["height_cm"], cfg, template, card, base), cfg
+
+
+def test_unverified_evidence_badge_is_visible_in_output_but_not_on_verified_or_synthetic_cards():
+    els = {"heading": _t("제목"), "content_1": _t("핵심 내용"), "source": _t("출처")}
+    shown, cfg = _scene_card("A", "body", els, unverified=True)
+    assert "근거 미검증" in _labels(shown)
+    assert not [i for i in card_news_scene.check_scene(shown, cfg) if i["level"] == "error"]  # 출처 줄·배지가 겹치지 않는다
+    assert "근거 미검증" not in _labels(_scene_card("A", "body", els, unverified=False)[0])
+    assert "근거 미검증" not in _labels(_scene_card("A", "body", els, unverified=True, is_synthetic=True)[0])  # 합성 카드는 띠로 표시
+    closing, cfg2 = _scene_card("B", "closing", {"message": _t("메시지"), "source": _t("출처")}, unverified=True)
+    assert "근거 미검증" in _labels(closing) and not [i for i in card_news_scene.check_scene(closing, cfg2) if i["level"] == "error"]
+
+
+def test_timeline_has_schedule_change_kind_and_closing_label_is_not_future_only():
+    els = {"heading": _t("제목"), "stage_1_kind": _t("changed"), "stage_1_date": _t("2025.2.14."), "stage_1_text": _t("시행일 연기 규정 공고"), "source": _t("출처")}
+    body, _ = _scene_card("B", "body", els)
+    assert "시행일 변경" in _labels(body)
+    closing, _ = _scene_card("B", "closing", {"message": _t("메시지"), "source": _t("출처")})
+    assert "주요 시행·준수 일정" in _labels(closing) and "향후 일정" not in _labels(closing)  # 지난 날짜가 섞여도 '향후'라고 쓰지 않는다
+
+
+def test_template_c_closing_band_does_not_cross_the_card_number():
+    scene, cfg = _scene_card("C", "closing", {"message": _t("메시지"), "source": _t("출처")})
+    band = next(i for i in scene["items"] if i["type"] == "rect" and i["y"] == 0 and i["w"] >= scene["width"] - 0.01)
+    tag = next(i for i in scene["items"] if i["type"] == "text" and i["text"] == "02/04")
+    assert band["h"] <= tag["y"]  # 장식 띠가 카드 번호와 겹치지 않는다
+
+
+def test_short_parenthetical_stays_with_preceding_word():
+    assert card_news_scene.keep_ascii_tokens("사전·사후와 (합성)") == "사전·사후와 (합성)"
+    assert card_news_scene.keep_ascii_tokens("긴 괄호 설명은 (그대로 줄바꿈 가능한 문장입니다)") == "긴 괄호 설명은 (그대로 줄바꿈 가능한 문장입니다)"

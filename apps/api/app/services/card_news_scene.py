@@ -13,7 +13,7 @@ from app.services.card_news_schema import STAGE_KINDS, STAGE_SLOTS, COUNTRY_SLOT
 
 PT_PER_CM = 28.3465
 STAGE_COLORS = {
-    "announce": "1B2A4A", "comment": "6E7685", "final": "2F7D62", "effective": "B5532E", "compliance": "7A5AA6", "other": "6E7685",
+    "announce": "1B2A4A", "comment": "6E7685", "final": "2F7D62", "effective": "B5532E", "compliance": "7A5AA6", "changed": "8A5A14", "other": "6E7685",
 }
 PAD_CM = 0.08
 
@@ -51,9 +51,12 @@ def keep_bracket_together(text: str, size_pt: float, width_cm: float, bold: bool
 ASCII_GAP = re.compile(r"(?<=[A-Za-z0-9)])[ ](?=[A-Za-z0-9(])|(?<=No\.)[ ](?=\d)")
 
 
+SHORT_PAREN = re.compile(r"(?<=\S) (?=\([^)\s]{1,8}\))")
+
+
 def keep_ascii_tokens(text: str) -> str:
     """영문 약어·번호·단위가 줄바꿈에서 쪼개지지 않게(예: 'FMVSS 305a', 'No. 305a') 영문·숫자 사이 공백을 줄바꿈 금지 공백으로 바꾼다."""
-    return ASCII_GAP.sub(" ", text)
+    return SHORT_PAREN.sub(" ", ASCII_GAP.sub(" ", text))
 
 
 def fit_source_links(links: list[dict], size_pt: float, width_cm: float) -> tuple[list[dict], str]:
@@ -229,6 +232,19 @@ class SceneBuilder:
         elif notes:
             self.label(0.55, 15.1, 5.9, 0.42, " · ".join(notes), 7, color, valign="middle")
 
+    def unverified_badge(self, y, x=None, w=2.0):
+        """이 카드에 연구원이 아직 검증하지 않은 근거(또는 근거 없는 핵심 내용)가 있음을 출력물에도 드러낸다. 합성 카드는 띠가 따로 있다."""
+        if not self.card.get("unverified") or self.ctx.get("is_synthetic"):
+            return
+        x = x if x is not None else self.m / self.sx + 5.9 - w
+        self.rect(x, y, w, 0.4, fill="FFF4D6", radius=0.1, name="근거 미검증 배지")
+        self.label(x, y, w, 0.4, "근거 미검증", 7, "6B5200", bold=True, align="center")
+
+    def source_row(self, m, y, cw):
+        shown = bool(self.card.get("unverified")) and not self.ctx.get("is_synthetic")
+        self.text("source", m, y, cw - 2.1 if shown else cw, 0.42, 7, self.cfg["gray_text"], prefix="출처: ", valign="middle")
+        self.unverified_badge(y + 0.01, m + cw - 2.0)
+
     def number_tag(self, color, x=5.35):
         self.label(x, 0.28, 1.1, 0.4, f"{self.card['index']:02d}/{self.card['total']:02d}", 7, color, align="right")
 
@@ -251,7 +267,8 @@ def _cover(b: SceneBuilder, variant: str) -> str:
         b.text("title", m, 2.3, 5.9, 6.2, 19, white, bold=True)
         b.rect(m, 8.9, 1.4, 0.12, fill=accent)
         b.text("subtitle", m, 9.3, 5.9, 3.2, 10, "D5DDEC")
-        b.text("source", m, 13.5, 5.9, 1.3, 7.5, "C0CADD", prefix="출처: ")
+        b.text("source", m, 13.5, 5.9, 0.6, 7.5, "C0CADD", prefix="출처: ")
+        b.unverified_badge(14.3)
         b.footer_note("C0CADD")
     elif variant == "B":
         bg = cfg["white"]
@@ -263,7 +280,8 @@ def _cover(b: SceneBuilder, variant: str) -> str:
         for i, yy in enumerate((9.6, 11.3, 13.0)):
             b.ellipse(1.0, yy, 0.4, accent if i == 0 else cfg["navy_soft"])
         b.text("subtitle", 1.95, 9.4, 4.5, 3.4, 9.5, navy)
-        b.text("source", m, 13.6, 5.9, 1.2, 7.5, cfg["gray_text"], prefix="출처: ")
+        b.text("source", m, 13.6, 5.9, 0.6, 7.5, cfg["gray_text"], prefix="출처: ")
+        b.unverified_badge(14.3)
         b.footer_note(cfg["gray_text"])
     elif variant == "C":
         bg = soft
@@ -274,7 +292,8 @@ def _cover(b: SceneBuilder, variant: str) -> str:
         b.rect(m, 2.5, 0.14, 4.6, fill=accent)
         b.text("title", m + 0.4, 2.4, 5.5, 5.6, 19, navy, bold=True)
         b.text("subtitle", m, 8.3, 5.9, 3.0, 10, navy)
-        b.text("source", m, 13.5, 5.9, 1.3, 7.5, cfg["gray_text"], prefix="출처: ")
+        b.text("source", m, 13.5, 5.9, 0.6, 7.5, cfg["gray_text"], prefix="출처: ")
+        b.unverified_badge(14.3)
         b.footer_note(cfg["gray_text"])
     else:  # D
         bg = navy
@@ -285,7 +304,8 @@ def _cover(b: SceneBuilder, variant: str) -> str:
         b.text("title", m, 3.6, 5.9, 5.0, 19, white, bold=True)
         b.rect(m, 8.9, 1.4, 0.12, fill=accent)
         b.text("subtitle", m, 9.3, 5.9, 3.2, 10, "D5DDEC")
-        b.text("source", m, 13.5, 5.9, 1.3, 7.5, "C0CADD", prefix="출처: ")
+        b.text("source", m, 13.5, 5.9, 0.6, 7.5, "C0CADD", prefix="출처: ")
+        b.unverified_badge(14.3)
         b.footer_note("C0CADD")
     return bg
 
@@ -300,7 +320,7 @@ def _closing(b: SceneBuilder, variant: str) -> str:
     if variant == "B":
         b.line(0.9, 1.0, 0.9, 13.0, accent, 2.0)
     elif variant == "C":
-        b.rect(0, 0, 7.0, 0.5, fill=accent)
+        b.rect(0, 0, 7.0, 0.22, fill=accent)
     elif variant == "D":
         b.ellipse(3.6, 10.6, 5.2, "27406B", deco=True)
     else:
@@ -310,9 +330,10 @@ def _closing(b: SceneBuilder, variant: str) -> str:
     b.label(x0, 1.3, w0, 0.5, {"A": "KEY MESSAGE", "B": "SCHEDULE", "C": "IMPLICATION", "D": "INSIGHT"}[variant], 8, light, bold=True)
     b.text("message", x0, 2.0, w0, 5.6, 16, white, bold=True)
     b.line(x0, 8.0, x0 + 1.8, 8.0, accent, 1.5)
-    b.label(x0, 8.3, w0, 0.5, {"A": "시사점·후속 과제", "B": "향후 일정", "C": "국내 시사점", "D": "산업적 의미"}[variant], 8, light, bold=True)
+    b.label(x0, 8.3, w0, 0.5, {"A": "시사점·후속 과제", "B": "주요 시행·준수 일정", "C": "국내 시사점", "D": "산업적 의미"}[variant], 8, light, bold=True)
     b.text("follow_up", x0, 8.9, w0, 3.8, 9.5, "D5DDEC")
-    b.text("source", x0, 13.1, w0, 1.7, 7.5, "C0CADD", prefix="출처: ")
+    b.text("source", x0, 13.1, w0, 0.6, 7.5, "C0CADD", prefix="출처: ")
+    b.unverified_badge(14.3, x0)
     b.footer_note("C0CADD")
     return bg
 
@@ -347,7 +368,7 @@ def _body_A(b: SceneBuilder) -> str:
     b.rect(m, 12.95, cw, 1.5, fill=soft, radius=0.15)
     b.label(m + 0.2, 13.0, 1.6, 0.4, "시사점", 7.5, dark, bold=True)
     b.text("implication", m + 0.2, 13.38, cw - 0.4, 1.0, 8, navy)
-    b.text("source", m, 14.45, cw, 0.42, 7, cfg["gray_text"], prefix="출처: ", valign="middle")
+    b.source_row(m, 14.45, cw)
     b.footer_note(cfg["gray_text"])
     return cfg["bg"]
 
@@ -377,7 +398,7 @@ def _body_B(b: SceneBuilder) -> str:
         b.label(1.95, y, 2.3, 0.4, STAGE_KINDS[kind], 7, white, bold=True, align="center")
         b.text(f"stage_{i}_date", 1.95, y + 0.45, 4.5, 0.5, 9.5, navy, bold=True, valign="middle")
         b.text(f"stage_{i}_text", 1.95, y + 0.98, 4.5, 1.2, 8.5, "2C3A55")
-    b.text("source", m, 14.45, 5.9, 0.42, 7, cfg["gray_text"], prefix="출처: ", valign="middle")
+    b.source_row(m, 14.45, 5.9)
     b.footer_note(cfg["gray_text"])
     return cfg["white"]
 
@@ -414,7 +435,7 @@ def _body_C(b: SceneBuilder) -> str:
         b.label(m + 0.15, y + 0.02, 3.0, 0.4, label, 7.5, cfg["accent_dark"], bold=True)
         b.text(key, m + 0.15, y + 0.38, cw - 0.3, 0.92, 7.5, navy)
         y += 1.4
-    b.text("source", m, 14.45, cw, 0.42, 7, cfg["gray_text"], prefix="출처: ", valign="middle")
+    b.source_row(m, 14.45, cw)
     b.footer_note(cfg["gray_text"])
     return cfg["bg"]
 
@@ -472,7 +493,7 @@ def _body_D(b: SceneBuilder) -> str:
         msg_h = min(14.3 - (top + 3.4), 5.6) if top < 5 else 3.6
         b.rect(m, top + 3.4, cw, msg_h, fill=navy, radius=0.15)
         b.text("message", m + 0.25, top + 3.5, cw - 0.5, msg_h - 0.2, 13, white, bold=True, valign="middle")
-    b.text("source", m, 14.45, cw, 0.42, 7, cfg["gray_text"], prefix="출처: ", valign="middle")
+    b.source_row(m, 14.45, cw)
     b.footer_note(cfg["gray_text"])
     return cfg["bg"]
 

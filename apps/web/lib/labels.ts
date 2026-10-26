@@ -89,6 +89,8 @@ export const ROLE_LABELS: Record<string, string> = {
   reviewer: "검토자",
   approver: "최종승인자",
   admin: "관리자",
+  author: "외부 집필 전문가",
+  ext_reviewer: "외부 검토 전문가",
 };
 
 export function fmtDate(value: string | null | undefined): string {

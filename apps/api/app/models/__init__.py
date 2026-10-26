@@ -1,5 +1,6 @@
 from app.models.user import User
 from app.models.followup import FollowupNotice, FollowupAck
+from app.models.journal import JournalSetting, JournalIssue, JournalScheduleStep, JournalExpert, JournalCommission, JournalCommissionEvent, JournalManuscript, JournalVersion, JournalAttachment, JournalAssignment, JournalComment, JournalDecision, JournalPlagiarism, JournalIssueItem, JournalExport
 from app.models.source import Source
 from app.models.collection_run import CollectionRun
 from app.models.source_document import SourceDocument
@@ -53,6 +54,21 @@ __all__ = [
     "CardNews",
     "FollowupNotice",
     "FollowupAck",
+    "JournalSetting",
+    "JournalIssue",
+    "JournalScheduleStep",
+    "JournalExpert",
+    "JournalCommission",
+    "JournalCommissionEvent",
+    "JournalManuscript",
+    "JournalVersion",
+    "JournalAttachment",
+    "JournalAssignment",
+    "JournalComment",
+    "JournalDecision",
+    "JournalPlagiarism",
+    "JournalIssueItem",
+    "JournalExport",
     "CardNewsCard",
     "CardNewsElement",
     "CardNewsEvidence",

@@ -14,7 +14,7 @@ DEFAULT_WIDTH_CM = 7.0
 DEFAULT_HEIGHT_CM = 15.62  # 작업용 기본 규격 — IITP 공식 발간 규격으로 확인된 값이 아님
 
 STAGE_KINDS = {
-    "announce": "발표", "comment": "의견수렴 마감", "final": "확정·공고", "effective": "시행", "compliance": "준수 시한", "other": "기타",
+    "announce": "발표", "comment": "의견수렴 마감", "final": "확정·공고", "effective": "시행", "compliance": "준수 시한", "changed": "시행일 변경", "other": "기타",
 }
 
 COUNTRY_SLOTS = 3

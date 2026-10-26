@@ -109,7 +109,7 @@ export interface CurrentUser {
   id: string;
   email: string;
   display_name: string;
-  role: "researcher" | "reviewer" | "approver" | "admin";
+  role: "researcher" | "reviewer" | "approver" | "admin" | "author" | "ext_reviewer";
   job_title: string | null;
   is_active: boolean;
 }

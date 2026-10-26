@@ -15,6 +15,7 @@ const NAV_ITEMS: { href: string; label: string; disabled?: boolean }[] = [
   { href: "/reports", label: "보고서·요약본 제작" },
   { href: "/card-news", label: "카드뉴스 제작" },
   { href: "/followups", label: "후속 규정 알림" },
+  { href: "/journal", label: "주간기술동향지 편집" },
   { href: "/sources", label: "출처·수집 관리" },
   { href: "/settings", label: "사용자 및 운영 설정" },
   { href: "/publications", label: "발간·배포 관리 (추후 개발)", disabled: true },
@@ -57,6 +58,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   if (!user) {
     return null; // 리다이렉트 중
   }
+  const external = user.role === "author" || user.role === "ext_reviewer";
+  const internalReviewer = user.role === "reviewer";
+  const navItems = external ? [{ href: "/portal", label: "원고 포털" }]
+    : internalReviewer ? [{ href: "/portal", label: "내 검토 배정" }, ...NAV_ITEMS.filter((i) => !i.href.startsWith("/journal"))]
+    : NAV_ITEMS;
 
   return (
     <div style={{ display: "flex", minHeight: "100vh" }}>
@@ -73,7 +79,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         }}
       >
         <div style={{ fontWeight: 700, fontSize: 15, padding: "0 10px 18px" }}>TNP AI Platform</div>
-        {NAV_ITEMS.map((item) => {
+        {navItems.map((item) => {
           const active = pathname?.startsWith(item.href);
           if (item.disabled) {
             return (
@@ -124,7 +130,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             background: "var(--panel)",
           }}
         >
-          <form onSubmit={handleSearch} style={{ display: "flex", gap: 8, flex: 1, maxWidth: 420 }}>
+          {external ? <div style={{ flex: 1 }} /> : <form onSubmit={handleSearch} style={{ display: "flex", gap: 8, flex: 1, maxWidth: 420 }}>
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -134,7 +140,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <button type="submit" className="tbtn">
               검색
             </button>
-          </form>
+          </form>}
           <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 13 }}>
             <span style={{ color: "var(--ink-muted)" }}>
               {user.display_name} · {ROLE_LABELS[user.role] ?? user.role}

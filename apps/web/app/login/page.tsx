@@ -2,7 +2,7 @@
 
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, getCurrentUser } from "@/lib/api";
 
 function LoginForm() {
   const router = useRouter();
@@ -22,7 +22,10 @@ function LoginForm() {
         body: JSON.stringify({ email, password }),
       });
       const next = searchParams.get("next");
-      router.push(next && next.startsWith("/") ? next : "/dashboard");
+      const me = await getCurrentUser();
+      const external = me.role === "author" || me.role === "ext_reviewer"; // 외부 전문가는 원고 포털만 사용한다
+      const fallback = external ? "/portal" : "/dashboard";
+      router.push(next && next.startsWith("/") && (!external || next.startsWith("/portal")) ? next : fallback);
     } catch (err) {
       setError(err instanceof Error ? err.message : "로그인에 실패했습니다");
     } finally {

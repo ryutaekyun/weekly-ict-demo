@@ -1,11 +1,12 @@
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import auth, candidates, card_news, dashboard, documents, editions, followups, issues, manuscripts, reports, sources, users
+from app.api import auth, candidates, card_news, dashboard, documents, editions, followups, issues, journal, journal_portal, manuscripts, reports, sources, users
 from app.core.config import settings
 from app.core.csrf import CSRFMiddleware
+from app.core.deps import guard_external_users
 
-app = FastAPI(title="TNP AI Platform API", version="0.1.0")
+app = FastAPI(title="TNP AI Platform API", version="0.1.0", dependencies=[Depends(guard_external_users)])
 
 app.add_middleware(CSRFMiddleware)
 app.add_middleware(
@@ -28,6 +29,8 @@ app.include_router(users.router)
 app.include_router(reports.router)
 app.include_router(card_news.router)
 app.include_router(followups.router)
+app.include_router(journal.router)
+app.include_router(journal_portal.router)
 app.include_router(reports.template_router)
 
 

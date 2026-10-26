@@ -28,5 +28,7 @@ def list_users(
     stmt = select(User).where(User.is_active.is_(True))
     if role is not None:
         stmt = stmt.where(User.role == role)
+    else:  # 외부 집필·검토 전문가 계정(개인정보)은 일반 목록에 노출하지 않는다 — 원고 심의 화면의 전용 API로만 조회
+        stmt = stmt.where(User.role.notin_([UserRole.AUTHOR, UserRole.EXT_REVIEWER]))
     users = db.scalars(stmt.order_by(User.display_name)).all()
     return [UserSummaryOut(id=str(u.id), display_name=u.display_name, role=u.role.value, email=u.email) for u in users]

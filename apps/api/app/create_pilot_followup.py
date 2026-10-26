@@ -216,7 +216,7 @@ def main() -> None:
         e = _els(db, body_card)
         stages = [("announce", "2024.4.15.", "FMVSS No. 305a 제정안(NPRM) 공고", None),
                   ("final", "2024.12.20.", "최종 규정 공고(Docket NHTSA-2024-0091)", fn_eff),
-                  ("other", "2025.2.14.", "시행일 연기 규정 공고(2025-02582)", fn_new["followup_delay"]),
+                  ("changed", "2025.2.14.", "시행일 연기 규정 공고(2025-02582)", fn_new["followup_delay"]),
                   ("effective", "2025.3.20.", "최종 규정 시행(당초 2025.2.18.에서 연기)", fn_new["followup_delay"]),
                   ("compliance", "2025.12.22.", "비상대응정보 문서화 요건 준수 시한", None)]
         # 기존 근거 연결(제정안·준수 시한)은 단계 위치가 바뀌므로 근거 행의 element_key를 새 위치에 맞춰 옮긴다
