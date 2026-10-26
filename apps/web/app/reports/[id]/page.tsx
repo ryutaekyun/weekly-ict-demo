@@ -196,6 +196,7 @@ export default function ReportDetailPage() {
           onBlur={() => { if (titleDraft.trim() && titleDraft !== report.title) run("title", () => updateReport(report.id, { title: titleDraft.trim() }), applyDetail); }}
           style={{ ...inp, fontSize: 18, fontWeight: 700, flex: 1, minWidth: 260 }} />
         <span className="pill review">{REPORT_TYPE_LABELS[report.report_type]}</span>
+        {report.report_type === "summary" && <span className="pill hold">{report.layout === "compact" ? "간결형" : "정식형"}</span>}
         <span className={`pill ${locked ? "rec" : "review"}`}>{REPORT_STATUS_LABELS[report.status] ?? report.status}</span>
         <span className="pill hold">{report.iitp_confirmed ? "IITP 확인 완료" : "IITP 공식 확인 전"}</span>
       </div>

@@ -78,7 +78,7 @@ def _detail(db: Session, report: Report) -> ReportDetailOut:
     return ReportDetailOut(
         **ReportListItemOut.model_validate(report).model_dump(),
         title_en=report.title_en, publish_date=report.publish_date, template_id=report.template_id,
-        iitp_confirmed=report.iitp_confirmed, finalize_exception_reason=report.finalize_exception_reason,
+        iitp_confirmed=report.iitp_confirmed, layout=report.layout, finalize_exception_reason=report.finalize_exception_reason,
         finalized_at=report.finalized_at, items=[_item_out(db, i) for i in items],
         preflight=[PreflightIssue(**i) for i in issues],
         blocking=[PreflightIssue(**i) for i in report_service.blocking_issues(issues)],
@@ -92,10 +92,12 @@ def list_reports(db: Session = Depends(get_db), _: User = Depends(get_current_us
 
 @router.post("", response_model=ReportDetailOut, status_code=status.HTTP_201_CREATED)
 def create_report(payload: ReportCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    if payload.layout == "compact" and payload.report_type != "summary":
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "간결형 레이아웃은 요약본에서만 사용할 수 있습니다")
     template = report_service.get_active_template(db)
     report = Report(
         report_type=payload.report_type, title=payload.title, title_en=payload.title_en, edition_id=payload.edition_id,
-        publish_date=payload.publish_date, template_id=template.id, created_by_user_id=user.id,
+        publish_date=payload.publish_date, template_id=template.id, created_by_user_id=user.id, layout=payload.layout,
     )
     db.add(report)
     db.flush()

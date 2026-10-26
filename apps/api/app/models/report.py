@@ -42,6 +42,8 @@ class Report(Base, UUIDPKMixin, TimestampMixin, UpdatedAtMixin):
     iitp_confirmed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_by_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     lock_version: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # standard(표지·목차 포함 정식형) / compact(요약본 전용 간결형 — 표지·목차 없이 1~2쪽)
+    layout: Mapped[str] = mapped_column(String(20), default="standard", nullable=False, server_default="standard")
 
 
 class ReportItem(Base, UUIDPKMixin, TimestampMixin, UpdatedAtMixin):

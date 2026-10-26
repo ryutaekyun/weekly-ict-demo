@@ -666,7 +666,7 @@ export interface ReportItemOut {
 export interface PreflightIssue { level: "error" | "warn" | "info"; code: string; message: string; part: string | null }
 export interface ReportDetail extends ReportListItem {
   title_en: string | null; publish_date: string | null; template_id: string | null; iitp_confirmed: boolean;
-  finalize_exception_reason: string | null; finalized_at: string | null;
+  layout: "standard" | "compact"; finalize_exception_reason: string | null; finalized_at: string | null;
   items: ReportItemOut[]; preflight: PreflightIssue[]; blocking: PreflightIssue[];
 }
 export interface ReportExportOut {
@@ -679,7 +679,7 @@ export interface ReportExportOut {
 }
 
 export const listReports = () => apiFetch<ReportListItem[]>("/reports");
-export const createReport = (payload: { report_type: string; title: string; title_en?: string }) =>
+export const createReport = (payload: { report_type: string; title: string; title_en?: string; layout?: "standard" | "compact" }) =>
   apiFetch<ReportDetail>("/reports", { method: "POST", body: JSON.stringify(payload) });
 export const getReport = (id: string) => apiFetch<ReportDetail>(`/reports/${id}`);
 export const updateReport = (id: string, payload: Partial<{ title: string; title_en: string }>) =>

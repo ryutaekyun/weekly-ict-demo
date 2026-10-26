@@ -151,34 +151,37 @@ def build_snapshot(db: Session, report: Report) -> dict:
     items = db.scalars(select(ReportItem).where(ReportItem.report_id == report.id).order_by(ReportItem.position)).all()
     edition = db.get(Edition, report.edition_id) if report.edition_id else None
 
-    parts: list[dict] = []
+    raw: list[dict] = []  # 번호 매기기 전의 파트 목록: {key, label, required, manuscripts, summary_items}
     if report.report_type == "general":
-        for idx, (key, label, _required) in enumerate(GENERAL_PARTS):
+        for key, label, required in GENERAL_PARTS:
             group = [i for i in items if i.part_key == key and i.manuscript_id]
-            parts.append({
-                "key": key, "heading": f"{report_docx.ROMAN[idx]}. {label}",
-                "manuscripts": [_manuscript_block(db, db.get(Manuscript, i.manuscript_id)) for i in group],
-            })
+            raw.append({"key": key, "label": label, "required": required,
+                        "manuscripts": [_manuscript_block(db, db.get(Manuscript, i.manuscript_id)) for i in group]})
         known = {k for k, _, _ in GENERAL_PARTS}
-        extras = [i for i in items if i.manuscript_id and i.part_key not in known]
-        for i in extras:
-            parts.append({
-                "key": i.part_key or "free", "heading": f"{report_docx.ROMAN[min(len(parts), 9)]}. {i.heading or '추가 원고'}",
-                "manuscripts": [_manuscript_block(db, db.get(Manuscript, i.manuscript_id))],
-            })
+        for i in [i for i in items if i.manuscript_id and i.part_key not in known]:
+            raw.append({"key": i.part_key or "free", "label": i.heading or "추가 원고", "required": False,
+                        "manuscripts": [_manuscript_block(db, db.get(Manuscript, i.manuscript_id))]})
     elif report.report_type == "special":
         for n, item in enumerate([i for i in items if i.manuscript_id], start=1):
             block = _manuscript_block(db, db.get(Manuscript, item.manuscript_id))
             heading = item.heading or block["title"]
             block["hide_title"] = _norm(heading) == _norm(block["title"])
-            parts.append({"key": "free", "heading": f"{n}. {heading}", "manuscripts": [block]})
+            raw.append({"key": "free", "label": heading, "required": True, "manuscripts": [block], "numeric": True})
     else:  # summary
-        for idx, (key, label, _required) in enumerate(SUMMARY_PARTS):
+        for key, label, required in SUMMARY_PARTS:
             group = [i for i in items if i.part_key == key and i.summary_text is not None]
-            parts.append({
-                "key": key, "heading": f"{report_docx.ROMAN[idx]}. {label}", "manuscripts": [],
-                "summary_items": [_summary_item_block(db, i) for i in group],
-            })
+            raw.append({"key": key, "label": label, "required": required, "manuscripts": [],
+                        "summary_items": [_summary_item_block(db, i) for i in group]})
+
+    # 출력용 확정본에서는 비어 있는 '선택 파트'를 출력에서 뺀다(확정본에 '미완성' 문구가 남는 모순 방지).
+    # 필수 파트가 비어 있는데 확정된 경우는 승인권자의 예외 승인이므로 파트를 유지하고 상태 표기에 '예외 승인'을 남긴다.
+    if report.status == "final":
+        raw = [r for r in raw if r["manuscripts"] or r.get("summary_items") or r["required"]]
+    parts: list[dict] = []
+    for idx, r in enumerate(raw):
+        numeral = f"{idx + 1}." if r.get("numeric") else f"{report_docx.ROMAN[min(idx, 9)]}."
+        parts.append({"key": r["key"], "heading": f"{numeral} {r['label']}", "required": r["required"],
+                      "manuscripts": r["manuscripts"], "summary_items": r.get("summary_items", [])})
 
     all_ms = [m for p in parts for m in p.get("manuscripts", [])]
     is_pilot = any(m["is_pilot"] for m in all_ms)
@@ -197,6 +200,7 @@ def build_snapshot(db: Session, report: Report) -> dict:
             "publish_date": (report.publish_date or (datetime.combine(edition.target_date, datetime.min.time()) if edition else None)).isoformat()
             if (report.publish_date or edition) else None,
             "iitp_confirmed": report.iitp_confirmed, "is_pilot": is_pilot, "status": report.status,
+            "layout": report.layout, "exception": bool(report.finalize_exception_reason),
         },
         "template": {
             "id": str(template.id), "name": template.name, "version": template.version,
@@ -328,19 +332,28 @@ def generate_export(db: Session, report: Report, *, file_format: str, user_id: u
     db.commit()
 
     try:
+        compact = snapshot["report"].get("layout") == "compact"
         built = report_docx.build_docx(snapshot)
         analysis = None
         render_note = None
+        toc_verified: bool | None = None
         docx_bytes = built.docx_bytes
         pdf_bytes = None
         if report_pdf.find_soffice() is not None:
-            pdf1 = report_pdf.convert_docx_to_pdf(built.docx_bytes)
-            analysis = report_pdf.analyze_pdf(pdf1, built.headings, built.part_headings)
-            toc_pages = {text: analysis["heading_pages"].get(text.strip()) for _lvl, text in built.headings}
-            built = report_docx.build_docx(snapshot, {k: v for k, v in toc_pages.items() if v})
-            docx_bytes = built.docx_bytes
-            pdf_bytes = report_pdf.convert_docx_to_pdf(docx_bytes)
-            analysis = report_pdf.analyze_pdf(pdf_bytes, built.headings, built.part_headings)
+            pdf_bytes = report_pdf.convert_docx_to_pdf(built.docx_bytes)
+            analysis = report_pdf.analyze_pdf(pdf_bytes, built.headings, built.part_headings, has_toc=not compact)
+            if not compact:
+                # 목차 번호는 이 환경에서 실제로 렌더링한 쪽수로만 넣고, 번호를 넣은 뒤에도 쪽수가 바뀌면 다시 맞춘다(최대 3회)
+                toc_verified = False
+                for _attempt in range(3):
+                    pages = analysis["heading_page_list"]
+                    built = report_docx.build_docx(snapshot, pages)
+                    docx_bytes = built.docx_bytes
+                    pdf_bytes = report_pdf.convert_docx_to_pdf(docx_bytes)
+                    analysis = report_pdf.analyze_pdf(pdf_bytes, built.headings, built.part_headings)
+                    if analysis["heading_page_list"] == pages:
+                        toc_verified = True
+                        break
         elif file_format == "pdf":
             raise report_pdf.PdfUnavailableError("이 서버에는 LibreOffice가 없어 PDF를 생성할 수 없습니다")
         else:
@@ -357,6 +370,12 @@ def generate_export(db: Session, report: Report, *, file_format: str, user_id: u
             export.page_count = analysis["page_count"]
         if render_note:
             issues.append({"level": "info", "code": "not_rendered", "message": render_note, "part": None})
+        if toc_verified is False:
+            issues.append({"level": "warn", "code": "toc_unstable", "part": None,
+                           "message": "목차 쪽수가 3회 재조판 후에도 수렴하지 않았습니다 — Word에서 목차 필드를 갱신해 확인하세요"})
+        elif toc_verified:
+            issues.append({"level": "info", "code": "toc_verified", "part": None,
+                           "message": "목차 쪽수를 이 환경의 실제 렌더링 결과와 대조해 확인했습니다(다른 글꼴 환경에서는 쪽수가 달라질 수 있어 Word에서 목차 갱신을 권장)"})
         export.footnote_count = built.footnote_count
         export.table_count = built.table_count
 
@@ -372,7 +391,7 @@ def generate_export(db: Session, report: Report, *, file_format: str, user_id: u
         export.validation_json = json.dumps({
             "issues": issues,
             "part_pages": analysis["part_pages"] if analysis else None,
-            "rendered": analysis is not None,
+            "rendered": analysis is not None, "toc_verified": toc_verified,
         }, ensure_ascii=False)
         export.status = "success"
         export.finished_at = datetime.now(timezone.utc)

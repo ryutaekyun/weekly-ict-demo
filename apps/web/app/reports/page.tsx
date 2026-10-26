@@ -12,6 +12,7 @@ export default function ReportsPage() {
   const [items, setItems] = useState<ReportListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [reportType, setReportType] = useState("general");
+  const [layout, setLayout] = useState<"standard" | "compact">("standard");
   const [title, setTitle] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -26,7 +27,10 @@ export default function ReportsPage() {
     setCreating(true);
     setError(null);
     try {
-      const created = await createReport({ report_type: reportType, title: title.trim() });
+      const created = await createReport({
+        report_type: reportType, title: title.trim(),
+        layout: reportType === "summary" ? layout : "standard",
+      });
       router.push(`/reports/${created.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "보고서 생성 실패");
@@ -46,6 +50,12 @@ export default function ReportsPage() {
         <select aria-label="보고서 유형" value={reportType} onChange={(e) => setReportType(e.target.value)} style={{ padding: 7, borderRadius: 8, border: "1px solid var(--border)" }}>
           {Object.entries(REPORT_TYPE_LABELS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
         </select>
+        {reportType === "summary" && (
+          <select aria-label="요약본 형식" value={layout} onChange={(e) => setLayout(e.target.value as "standard" | "compact")} style={{ padding: 7, borderRadius: 8, border: "1px solid var(--border)" }}>
+            <option value="standard">정식형(표지·목차 포함)</option>
+            <option value="compact">간결형(1~2쪽, 표지·목차 없음)</option>
+          </select>
+        )}
         <input aria-label="보고서 제목" placeholder="보고서 제목" value={title} onChange={(e) => setTitle(e.target.value)} style={{ flex: 1, minWidth: 240, padding: 8, borderRadius: 8, border: "1px solid var(--border)" }} />
         <button className="tbtn primary" type="submit" disabled={creating}>{creating ? "생성 중..." : "새 보고서 만들기"}</button>
         {error && <span role="alert" style={{ color: "var(--danger, #b42318)", fontSize: 12.5 }}>{error}</span>}

@@ -11,6 +11,7 @@ class ReportCreate(BaseModel):
     title_en: str | None = None
     edition_id: uuid.UUID | None = None
     publish_date: datetime | None = None
+    layout: Literal["standard", "compact"] = "standard"
 
 
 class ReportUpdate(BaseModel):
@@ -112,6 +113,7 @@ class ReportDetailOut(ReportListItemOut):
     publish_date: datetime | None
     template_id: uuid.UUID | None
     iitp_confirmed: bool
+    layout: str
     finalize_exception_reason: str | None
     finalized_at: datetime | None
     items: list[ReportItemOut]

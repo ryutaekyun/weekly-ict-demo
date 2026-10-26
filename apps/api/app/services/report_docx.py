@@ -39,7 +39,9 @@ DEFAULT_TEMPLATE_CONFIG = {
     "color_table_header": "DCE4F0",
     "table_caption_format": "[표 {part}-{n}]",
     "footnote_format": "{org}, 「{title}」, {published}, {url} (열람 {accessed})",
+    "footnote_short_format": "{org}, 앞의 각주 {n}번 참조",
     "footnote_show_verification_tag": True,
+    "publisher": "테크노베이션파트너스(TNP)",
 }
 
 
@@ -100,6 +102,11 @@ def _title_key(text: str) -> str:
     return re.sub(r"\s+", "", re.sub(r"^(\s*\[[^\]]*\]\s*)+", "", text or ""))
 
 
+def _nbsp(text: str) -> str:
+    """영문 약어·기술명(예: FMVSS 305a)이 줄바꿈에서 중간에 끊기지 않도록 영숫자 사이 공백을 줄바꿈 금지 공백으로 바꾼다."""
+    return re.sub(r"(?<=[A-Za-z0-9\)])\s(?=[A-Za-z0-9\(])", "\u00a0", text)
+
+
 def _fmt_date(value: str | None) -> str:
     if not value:
         return "발표일 미확인"
@@ -109,7 +116,7 @@ def _fmt_date(value: str | None) -> str:
         return value[:10]
 
 
-def format_footnote_text(fn: dict, config: dict) -> str:
+def format_footnote_text(fn: dict, config: dict, short_ref: int | None = None) -> str:
     """관리자가 template.config.footnote_format으로 바꿀 수 있는 출처 표기 규칙."""
     values = {
         "org": fn.get("source_org") or "",
@@ -118,13 +125,15 @@ def format_footnote_text(fn: dict, config: dict) -> str:
         "accessed": _fmt_date(fn.get("accessed_at")) if fn.get("accessed_at") else "",
         "url": fn.get("source_url") or "",
         "location": fn.get("location_label") or "위치 미확인",
+        "n": str(short_ref) if short_ref else "",
     }
 
     class _Safe(dict):
         def __missing__(self, key):
             return ""
 
-    text = config["footnote_format"].format_map(_Safe(values))
+    template = config["footnote_short_format"] if short_ref else config["footnote_format"]
+    text = template.format_map(_Safe(values))
     text = re.sub(r"「\s*」", "", text)
     text = re.sub(r"\(\s*열람\s*\)", "", text)
     text = re.sub(r"(\s*,\s*){2,}", ", ", text)
@@ -138,12 +147,14 @@ def format_footnote_text(fn: dict, config: dict) -> str:
 
 
 class DocxBuilder:
-    def __init__(self, snapshot: dict, toc_pages: dict[str, int] | None = None):
+    def __init__(self, snapshot: dict, toc_pages: list[int | None] | None = None):
         self.snapshot = snapshot
         self.config = merge_template_config(snapshot.get("template", {}).get("config"))
         self.toc_pages = toc_pages
         self.doc = Document()
-        self.footnotes: list[tuple[int, str]] = []
+        self.footnotes: list[tuple[int, str, str | None]] = []
+        self.compact = snapshot["report"].get("layout") == "compact"
+        self._seen_sources: dict[str, int] = {}
         self.headings: list[tuple[int, str]] = []
         self.part_headings: list[str] = []
         self.table_count = 0
@@ -195,7 +206,7 @@ class DocxBuilder:
         m = cfg["margins_mm"]
         section.top_margin, section.bottom_margin = Mm(m["top"]), Mm(m["bottom"])
         section.left_margin, section.right_margin = Mm(m["left"]), Mm(m["right"])
-        section.different_first_page_header_footer = True  # 표지에는 머리글·바닥글을 넣지 않는다
+        section.different_first_page_header_footer = not self.compact  # 표지에는 머리글·바닥글을 넣지 않는다(간결형은 첫 쪽에도 표시)
 
         # 머리글
         header_p = section.header.paragraphs[0]
@@ -218,7 +229,8 @@ class DocxBuilder:
         rep = self.snapshot["report"]
         parts = []
         if rep.get("status") == "final":
-            parts.append("출력용 확정본(내부 절차)" + ("" if rep.get("iitp_confirmed") else " · IITP 공식 확인 전"))
+            label = "출력용 확정본(예외 승인)" if rep.get("exception") else "출력용 확정본(내부 절차)"
+            parts.append(label + ("" if rep.get("iitp_confirmed") else " · IITP 공식 확인 전"))
         elif not rep.get("iitp_confirmed"):
             parts.append("내부 검토용 초안 · IITP 공식 확인 전")
         if rep.get("is_pilot"):
@@ -249,6 +261,10 @@ class DocxBuilder:
         run_with(end)
 
     # ---- 표지·목차 ----
+    def _title_size(self, text: str) -> float:
+        n = len(text)
+        return 26 if n <= 18 else 22 if n <= 30 else 19 if n <= 48 else 16
+
     def _build_cover(self) -> None:
         rep = self.snapshot["report"]
         cfg = self.config
@@ -259,11 +275,15 @@ class DocxBuilder:
         _set_run_font(r, cfg["font_heading"], 12)
         r.font.color.rgb = RGBColor.from_string(cfg["color_primary"])
         r.bold = True
-        title = self.doc.add_paragraph(rep["title"], style="Title")
+        title = self.doc.add_paragraph(style="Title")
         title.paragraph_format.space_after = Pt(6)
+        tr = title.add_run(_nbsp(rep["title"]))
+        _set_run_font(tr, cfg["font_heading"], self._title_size(rep["title"]))  # 긴 제목은 글자 크기를 줄여 단어가 어색하게 끊기지 않게 한다
+        tr.bold = True
+        tr.font.color.rgb = RGBColor.from_string(cfg["color_primary"])
         if rep.get("title_en"):
             en = self.doc.add_paragraph()
-            er = en.add_run(rep["title_en"])
+            er = en.add_run(_nbsp(rep["title_en"]))
             _set_run_font(er, cfg["font_heading"], 13)
             er.italic = True
             er.font.color.rgb = RGBColor(0x44, 0x4F, 0x62)
@@ -278,13 +298,17 @@ class DocxBuilder:
             meta_lines.append(f"발간 회차: {rep['edition_label']}")
         if rep.get("publish_date"):
             meta_lines.append(f"발간(예정)일: {_fmt_date(rep['publish_date'])}")
+        if cfg.get("publisher"):
+            meta_lines.append(f"작성: {cfg['publisher']}")
+        meta_lines.append("문서 상태: " + ("출력용 확정본(내부 절차)" if rep.get("status") == "final" else "내부 검토용 초안")
+                          + ("" if rep.get("iitp_confirmed") else " · IITP 공식 확인 전"))
         meta_lines.append(f"출력 기준 템플릿: {self.snapshot['template']['name']} v{self.snapshot['template']['version']}"
                           + (" (임시 표준 템플릿 — IITP 공식 양식 아님)" if self.snapshot["template"].get("is_provisional") else ""))
         for line in meta_lines:
             p = self.doc.add_paragraph()
             rr = p.add_run(line)
             _set_run_font(rr, cfg["font_body"], 11)
-        for _ in range(3):
+        for _ in range(2):
             self.doc.add_paragraph()
         notice = self._status_label()
         if notice:
@@ -295,26 +319,59 @@ class DocxBuilder:
             rr.bold = True
         self._page_break()
 
+    def _build_compact_title(self) -> None:
+        """간결형: 표지·목차 페이지 없이 첫 쪽 상단에 제목 블록만 둔다."""
+        rep = self.snapshot["report"]
+        cfg = self.config
+        title = self.doc.add_paragraph(style="Title")
+        title.paragraph_format.space_after = Pt(2)
+        tr = title.add_run(_nbsp(rep["title"]))
+        _set_run_font(tr, cfg["font_heading"], min(self._title_size(rep["title"]), 20))
+        tr.bold = True
+        tr.font.color.rgb = RGBColor.from_string(cfg["color_primary"])
+        if rep.get("title_en"):
+            en = self.doc.add_paragraph()
+            er = en.add_run(_nbsp(rep["title_en"]))
+            _set_run_font(er, cfg["font_heading"], 10.5)
+            er.italic = True
+            er.font.color.rgb = RGBColor(0x44, 0x4F, 0x62)
+        meta = []
+        if rep.get("edition_label"):
+            meta.append(rep["edition_label"])
+        if rep.get("publish_date"):
+            meta.append(_fmt_date(rep["publish_date"]))
+        meta.append("임시 간결형 요약본(IITP 공식 양식 아님)")
+        p = self.doc.add_paragraph()
+        mr = p.add_run(" · ".join(meta))
+        _set_run_font(mr, cfg["font_body"], 9)
+        mr.font.color.rgb = RGBColor(0x55, 0x60, 0x70)
+        ppr = p._p.get_or_add_pPr()
+        ppr.append(parse_xml(f'<w:pBdr {nsdecls("w")}><w:bottom w:val="single" w:sz="12" w:space="2" w:color="{cfg["color_primary"]}"/></w:pBdr>'))
+
     def _page_break(self) -> None:
         self.doc.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
 
     # ---- 본문 ----
     def build(self) -> BuildResult:
         self._setup_styles()
-        self._build_cover()
-
-        toc_title = self.doc.add_paragraph()
-        tr = toc_title.add_run("목  차")
-        _set_run_font(tr, self.config["font_heading"], 17)
-        tr.bold = True
-        tr.font.color.rgb = RGBColor.from_string(self.config["color_primary"])
-        toc_anchor = self.doc.add_paragraph()  # 본문을 다 만든 뒤 이 앞에 목차 항목을 삽입한다
-        self._page_break()
+        toc_anchor = None
+        if self.compact:
+            self._build_compact_title()
+        else:
+            self._build_cover()
+            toc_title = self.doc.add_paragraph()
+            tr = toc_title.add_run("목  차")
+            _set_run_font(tr, self.config["font_heading"], 17)
+            tr.bold = True
+            tr.font.color.rgb = RGBColor.from_string(self.config["color_primary"])
+            toc_anchor = self.doc.add_paragraph()  # 본문을 다 만든 뒤 이 앞에 목차 항목을 삽입한다
+            self._page_break()
 
         for part_no, part in enumerate(self.snapshot["parts"], start=1):
             self._build_part(part_no, part)
 
-        self._insert_toc(toc_anchor)
+        if toc_anchor is not None:
+            self._insert_toc(toc_anchor)
         self._attach_footnotes_part()
         buf = io.BytesIO()
         self.doc.save(buf)
@@ -323,17 +380,34 @@ class DocxBuilder:
             headings=list(self.headings), part_headings=list(self.part_headings),
         )
 
+    def _bookmark(self, paragraph, idx: int) -> None:
+        """목차 항목이 제목 문자열이 아니라 '몇 번째 제목인가'로 연결되도록 고유 북마크(_Toc000001…)를 건다."""
+        start = OxmlElement("w:bookmarkStart")
+        start.set(qn("w:id"), str(idx + 1))
+        start.set(qn("w:name"), f"_Toc{idx + 1:06d}")
+        end = OxmlElement("w:bookmarkEnd")
+        end.set(qn("w:id"), str(idx + 1))
+        p = paragraph._p
+        ppr = p.find(qn("w:pPr"))
+        if ppr is not None:
+            ppr.addnext(start)
+        else:
+            p.insert(0, start)
+        p.append(end)
+
     def _add_heading(self, text: str, level: int) -> None:
         p = self.doc.add_heading(level=level)
-        run = p.add_run(text)
+        run = p.add_run(_nbsp(text))
         _set_run_font(run, self.config["font_heading"])
+        if level <= 3:
+            self._bookmark(p, len(self.headings))
         self.headings.append((level, text))
 
     def _build_part(self, part_no: int, part: dict) -> None:
         self._current_part_no = part_no
         self._table_counter_in_part = 0
         has_content = bool(part.get("manuscripts")) or bool(part.get("summary_items"))
-        if part_no > 1 and has_content:  # 내용이 있는 파트만 새 페이지에서 시작(빈 파트로 빈 페이지가 생기지 않게)
+        if part_no > 1 and has_content and not self.compact:  # 내용이 있는 파트만 새 페이지에서 시작(빈 파트로 빈 페이지가 생기지 않게)
             self._page_break()
         self._add_heading(part["heading"], 1)
         self.part_headings.append(part["heading"])
@@ -412,6 +486,7 @@ class DocxBuilder:
                 p = self.doc.add_heading(level=word_level)
                 self._add_inline(p, block.get("content", []), font_override=self.config["font_heading"])
                 if word_level <= 3 and container is self.doc:
+                    self._bookmark(p, len(self.headings))
                     self.headings.append((word_level, text))
             elif btype in ("bulletList", "orderedList"):
                 self._render_list(container, block, list_depth)
@@ -472,9 +547,10 @@ class DocxBuilder:
         self.table_count += 1
         self._table_counter_in_part += 1
         caption_text = self.config["table_caption_format"].format(part=self._current_part_no, n=self._table_counter_in_part)
+        user_caption = (block.get("attrs", {}) or {}).get("caption", "").strip()
         cap = container.add_paragraph(style="Caption")
         cap.paragraph_format.keep_with_next = True
-        cap.add_run(caption_text)
+        cap.add_run(caption_text + (f" {user_caption}" if user_caption else ""))  # [표 1-1] 국가별 주요 정책 비교
 
         n_cols = 0
         for row in rows:
@@ -521,6 +597,10 @@ class DocxBuilder:
                             run.font.size = Pt(9.5)
                 col += colspan
             # 제목행(첫 행이 tableHeader로만 구성된 경우) 반복 + 행이 쪼개지지 않게 한다
+            if r_idx == 0:  # 표 제목행과 첫 데이터 행이 쪽 경계에서 떨어지지 않게 한다
+                for c in table.rows[0].cells:
+                    for p in c.paragraphs:
+                        p.paragraph_format.keep_with_next = True
             trpr = table.rows[r_idx]._tr.get_or_add_trPr()
             trpr.append(OxmlElement("w:cantSplit"))
             if r_idx == 0 and all(c.get("type") == "tableHeader" for c in row.get("content", [])):
@@ -606,7 +686,13 @@ class DocxBuilder:
         if fn is None:
             return
         fn_id = len(self.footnotes) + 1
-        self.footnotes.append((fn_id, format_footnote_text(fn, self.config)))
+        source_key = fn.get("source_url") or fn.get("doc_title") or mark_id
+        first = self._seen_sources.get(source_key)
+        if first is None:
+            self._seen_sources[source_key] = fn_id
+            self.footnotes.append((fn_id, format_footnote_text(fn, self.config), fn.get("source_url")))
+        else:  # 같은 출처를 다시 인용하면 전체 서지정보를 반복하지 않고 첫 각주를 가리킨다(근거 검증 상태 표시는 각주마다 유지)
+            self.footnotes.append((fn_id, format_footnote_text(fn, self.config, short_ref=first), None))
         run = par.add_run()
         rpr = run._r.get_or_add_rPr()
         rstyle = OxmlElement("w:rStyle")
@@ -648,8 +734,11 @@ class DocxBuilder:
                         it.text = f" {instr} "
                         r.append(it)
                     p.append(r)
-            page = (self.toc_pages or {}).get(text) if known_pages else None
+            page = self.toc_pages[idx] if known_pages and idx < len(self.toc_pages) else None
             line = text + ("\t" + str(page) if page else "")
+            hl = OxmlElement("w:hyperlink")  # 목차 항목을 누르면 해당 제목으로 이동(Word·PDF)
+            hl.set(qn("w:anchor"), f"_Toc{idx + 1:06d}")
+            hl.set(qn("w:history"), "1")
             r = OxmlElement("w:r")
             rpr = OxmlElement("w:rPr")
             rfonts = OxmlElement("w:rFonts")
@@ -673,7 +762,8 @@ class DocxBuilder:
                 t.set(qn("xml:space"), "preserve")
                 t.text = line
                 r.append(t)
-            p.append(r)
+            hl.append(r)
+            p.append(hl)
             if idx == len(entries) - 1:
                 r_end = OxmlElement("w:r")
                 fc = OxmlElement("w:fldChar")
@@ -701,6 +791,22 @@ class DocxBuilder:
     # ---- 각주 파트 ----
     def _attach_footnotes_part(self) -> None:
         w_ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+        package = self.doc.part.package
+        part = Part(
+            PackURI("/word/footnotes.xml"),
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml",
+            b"", package,
+        )
+        self.doc.part.relate_to(part, RT.FOOTNOTES)
+        font = self.config["font_body"]
+        fonts = f'<w:rFonts w:ascii="{font}" w:hAnsi="{font}" w:eastAsia="{font}" w:cs="{font}"/>'
+
+        def esc(t: str) -> str:
+            return t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+        def run(t: str) -> str:
+            return f'<w:r><w:rPr>{fonts}</w:rPr><w:t xml:space="preserve">{esc(t)}</w:t></w:r>' if t else ""
+
         parts = [
             f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:footnotes xmlns:w="{w_ns}" '
             'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">',
@@ -709,25 +815,22 @@ class DocxBuilder:
             '<w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr>'
             "<w:r><w:continuationSeparator/></w:r></w:p></w:footnote>",
         ]
-        font = self.config["font_body"]
-        for fn_id, text in self.footnotes:
-            esc = (text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+        for fn_id, text, url in self.footnotes:
+            if url and url in text:  # 각주 속 URL을 Word에서 클릭 가능한 실제 하이퍼링크로 만든다
+                head, tail = text.split(url, 1)
+                rid = part.relate_to(url, RT.HYPERLINK, is_external=True)
+                body = (run(" " + head)
+                        + f'<w:hyperlink r:id="{rid}"><w:r><w:rPr><w:rStyle w:val="Hyperlink"/>{fonts}</w:rPr>'
+                          f'<w:t xml:space="preserve">{esc(url)}</w:t></w:r></w:hyperlink>' + run(tail))
+            else:
+                body = run(" " + text)
             parts.append(
                 f'<w:footnote w:id="{fn_id}"><w:p><w:pPr><w:pStyle w:val="FootnoteText"/></w:pPr>'
-                '<w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteRef/></w:r>'
-                f'<w:r><w:rPr><w:rFonts w:ascii="{font}" w:hAnsi="{font}" w:eastAsia="{font}" w:cs="{font}"/></w:rPr>'
-                f'<w:t xml:space="preserve"> {esc}</w:t></w:r></w:p></w:footnote>'
+                f'<w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteRef/></w:r>{body}</w:p></w:footnote>'
             )
         parts.append("</w:footnotes>")
-        blob = "".join(parts).encode("utf-8")
-        package = self.doc.part.package
-        part = Part(
-            PackURI("/word/footnotes.xml"),
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml",
-            blob, package,
-        )
-        self.doc.part.relate_to(part, RT.FOOTNOTES)
+        part._blob = "".join(parts).encode("utf-8")
 
 
-def build_docx(snapshot: dict, toc_pages: dict[str, int] | None = None) -> BuildResult:
+def build_docx(snapshot: dict, toc_pages: list[int | None] | None = None) -> BuildResult:
     return DocxBuilder(snapshot, toc_pages).build()

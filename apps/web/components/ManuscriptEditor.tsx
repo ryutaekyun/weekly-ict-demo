@@ -5,8 +5,23 @@ import StarterKit from "@tiptap/starter-kit";
 import Underline from "@tiptap/extension-underline";
 import Link from "@tiptap/extension-link";
 import { TableKit } from "@tiptap/extension-table/kit";
+import { Table } from "@tiptap/extension-table";
 import { useEffect } from "react";
 import { FootnoteMark } from "@/lib/footnoteMark";
+
+// 표 제목(caption) 속성: 출력 시 "[표 n-m] 제목"으로 인쇄된다
+const CaptionTable = Table.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      caption: {
+        default: null,
+        parseHTML: (el: HTMLElement) => el.getAttribute("data-caption"),
+        renderHTML: (attrs: Record<string, unknown>) => (attrs.caption ? { "data-caption": String(attrs.caption) } : {}),
+      },
+    };
+  },
+});
 
 export default function ManuscriptEditor({
   initialJson,
@@ -35,7 +50,8 @@ export default function ManuscriptEditor({
       StarterKit,
       Underline,
       Link.configure({ openOnClick: false, autolink: true }),
-      TableKit.configure({ table: { resizable: false } }),
+      TableKit.configure({ table: false }),
+      CaptionTable.configure({ resizable: false }),
       FootnoteMark,
     ],
     content: initialContent || "<p></p>",
@@ -97,6 +113,20 @@ export default function ManuscriptEditor({
           onClick={() => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}
         >
           표 삽입
+        </button>
+        <button
+          type="button"
+          className="tbtn"
+          disabled={!editable}
+          title="커서가 놓인 표의 제목을 입력합니다"
+          onClick={() => {
+            if (!editor.isActive("table")) { window.alert("제목을 입력할 표 안에 커서를 놓아 주세요"); return; }
+            const current = (editor.getAttributes("table").caption as string | null) ?? "";
+            const value = window.prompt("표 제목을 입력하세요(비우면 번호만 표시)", current);
+            if (value !== null) editor.chain().focus().updateAttributes("table", { caption: value.trim() || null }).run();
+          }}
+        >
+          표 제목
         </button>
         <button type="button" className="tbtn" onClick={() => editor.chain().focus().undo().run()} disabled={!editable}>실행취소</button>
         <button type="button" className="tbtn" onClick={() => editor.chain().focus().redo().run()} disabled={!editable}>다시실행</button>

@@ -196,6 +196,15 @@ def main() -> None:
         db.commit()
         _export_both(db, summary, author, out, "02_요약본_시범")
 
+        print("2b) 같은 내용의 간결형 요약본(표지·목차 없이 1~2쪽)")
+        compact = _new_report(db, author, "summary", "[시범] 주간 AI·ICT 동향 요약본(간결형) — 개발용 출력 테스트")
+        compact.layout = "compact"
+        for it in db.query(ReportItem).filter_by(report_id=summary.id).order_by(ReportItem.position).all():
+            db.add(ReportItem(report_id=compact.id, position=it.position, part_key=it.part_key, manuscript_id=it.manuscript_id,
+                              source_sentence=it.source_sentence, summary_text=it.summary_text))
+        db.commit()
+        _export_both(db, compact, author, out, "02b_요약본_간결형_시범")
+
         print("3) 합성 원고 생성(특집호·긴 문서·확정 흐름 검증용)")
         syn_a = _make_synthetic(db, author, reviewer, approver, title=f"{SYN} 특집 원고 A — 긴 표 포함",
                                 paragraphs=[f"합성 문장 {i}: 출력 레이아웃 점검을 위한 가상의 설명 문장으로 실제 사실이 아님." for i in range(1, 9)],
