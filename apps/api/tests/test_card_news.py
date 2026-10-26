@@ -469,10 +469,6 @@ def test_png_export_renders_real_high_resolution_cards_same_ratio_as_pptx(client
     for name in names:
         img = Image.open(io.BytesIO(zf.read(name)))
         assert min(img.size) >= 1000 and abs(img.size[0] / img.size[1] - 7.0 / 15.62) < 0.01
-    one = client.get(f"/card-news/{cn['id']}/exports/{e['id']}/cards/2.png", headers=h)
-    assert one.status_code == 200 and one.content[:8] == b"\x89PNG\r\n\x1a\n"
-    assert not [i for i in validation["issues"] if i["code"] in ("rendered_out_of_bounds", "page_count_mismatch")]
-
     sample_dir = os.environ.get("REPORT_SAMPLE_DIR")  # CI가 합성 데이터 PNG를 아티팩트로 보관할 때 사용
     if sample_dir:
         from pathlib import Path
@@ -481,3 +477,9 @@ def test_png_export_renders_real_high_resolution_cards_same_ratio_as_pptx(client
         out.mkdir(parents=True, exist_ok=True)
         for name in names:
             (out / name).write_bytes(zf.read(name))
+
+    one = client.get(f"/card-news/{cn['id']}/exports/{e['id']}/cards/2.png", headers=h)
+    assert one.status_code == 200 and one.content[:8] == b"\x89PNG\r\n\x1a\n"
+    bad = [i["message"] for i in validation["issues"] if i["code"] in ("rendered_out_of_bounds", "page_count_mismatch")]
+    assert not bad, bad
+

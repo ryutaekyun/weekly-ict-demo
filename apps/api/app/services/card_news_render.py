@@ -44,7 +44,7 @@ def check_rendered(pdf_bytes: bytes, scenes: list[dict]) -> list[dict]:
             for x0, y0, x1, y1, word, *_ in words:
                 if x1 > rect.x1 + 1 or y1 > rect.y1 + 1 or x0 < rect.x0 - 1 or y0 < rect.y0 - 1:
                     issues.append({"level": "error", "code": "rendered_out_of_bounds",
-                                   "message": f"{idx + 1}번 카드에서 글자 '{word}'가 카드 밖으로 나갑니다", "key": None})
+                                   "message": f"{idx + 1}번 카드에서 글자 '{word}'가 카드 밖으로 나갑니다(글자 영역 {x0:.0f},{y0:.0f}~{x1:.0f},{y1:.0f}pt / 카드 {rect.width:.0f}×{rect.height:.0f}pt)", "key": None})
                     break
             page_text = "".join(page.get_text().split())
             for it in scenes[idx]["items"]:
