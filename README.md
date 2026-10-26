@@ -22,7 +22,8 @@
 | 동일 이슈 자동 통합(RIN/Docket 강한신호+제목유사도 약한신호) + 신규·후속변화 타임라인 + 쟁점·논쟁 분석 + 후보주제 가중점수 추천 | **구현·실행 완료 — 161건 실데이터로 143개 이슈 클러스터 생성(복수문서 통합 13건), 142건 후보주제 추천**. 실데이터 검증 중 발견한 실제 결함 7건(세션 flush 문제, 분야오분류로 인한 클러스터링 실패, 관용구 오탐, 허브문서 자동확정 등) 전부 수정. 국가비교·국내산업연관성은 근거 없이 임의 작성하지 않고 142건 전부 정직하게 "평가보류" 처리. AI는 Phase 2-2와 동일하게 키 미보유로 실호출 미검증. 상세는 `docs/PLATFORM_PLAN.md` §9 참고 |
 | 연구·집필 작업실(후보주제→원고 생성, TipTap 편집기, 자동저장·주요버전·비교·복원, 각주-원문 근거 연결, 교차검토·내부 승인, 낙관적 잠금 충돌 감지) | **구현·실행·검증 완료 (Phase 3-1)** — 백엔드 테스트 108개, Playwright 시나리오 A~G 전부 통과. 근거 미검증 각주는 연구원이 명시 확인하기 전까지 검증완료가 되지 않음. 내부 승인은 IITP 공식 선정과 분리. 실제 공식 원문(연방관보 FMVSS 305a) 기반 '시범 작성 원고' 1건 작성. 상세는 `docs/PLATFORM_PLAN.md` §11 |
 | 보고서·요약본 제작(일반호·특집호·요약본 구성, 실제 Word 각주·표·목차가 있는 편집 가능 DOCX + LibreOffice 변환 PDF, 스냅샷 출력 이력·SHA-256, 발간 점검, 출력용 확정) | **구현·실행·검증 완료 (Phase 3-2)** — 실제 파일을 열어 확인하고 PDF를 페이지별로 렌더링해 점검. 본문 각주 번호 `[n]` 표시. **Microsoft Word 실제 열람은 미검증**, 공식 IITP 양식이 없어 임시 표준 템플릿 사용(IITP 공식 확인과 별개). 상세는 `docs/PLATFORM_PLAN.md` §12 |
-| HTML 파싱 수집기(Federal Register 외), 분야별 2곳 이상 확보, 실제 AI 모델 호출, HWPX 출력, 카드뉴스·주간기술동향지·배포 관리, 실제 메일 발송 | **미구현** (Phase 3-3 이후, `docs/PLATFORM_PLAN.md`의 로드맵 참고) |
+| 카드뉴스 제작(보고서·요약본 연계 생성, 디자인 템플릿 4종, 3분할 웹 편집기, 원문 근거·검증, 검토·승인·버전, **편집 가능한 PPTX** + 고화질 PNG) | **구현·실행·검증 완료 (Phase 3-3)** — PPTX는 텍스트·도형·표·차트가 PowerPoint 객체(전체 이미지 아님), PNG는 같은 PPTX를 LibreOffice로 렌더링(짧은 변 1,000px 이상). 기본 규격 7×15.62cm는 작업용 값. **Microsoft PowerPoint 실제 열람은 미검증**, 이미지·AI 생성 미구현. 상세는 `docs/PLATFORM_PLAN.md` §13 |
+| HTML 파싱 수집기(Federal Register 외), 분야별 2곳 이상 확보, 실제 AI 모델 호출, HWPX 출력, 주간기술동향지·발간·배포 관리, 실제 메일 발송 | **미구현** (Phase 3-4 이후, `docs/PLATFORM_PLAN.md`의 로드맵 참고) |
 
 **Next.js 빌드/구동은 Phase 2-4에서 실제로 검증 완료**(winget으로 Node.js를 직접 설치해 빌드·실행·브라우저 테스트까지 수행, `docs/PLATFORM_PLAN.md` §10 참고). **Docker Compose 전체 스택만 사용자 환경에서 처음 실행·검증이 필요**하다(PostgreSQL 통합 자체는 GitHub Actions CI로 검증됨).
 
@@ -82,7 +83,7 @@ python -m app.reprocess_issues   # 분류된(관련성=matched) 문서 전체를
 ### 보고서 PDF 출력에 필요한 도구 (Phase 3-2)
 DOCX는 추가 도구 없이 생성되지만, **PDF 변환·페이지 수/목차 번호 확인에는 LibreOffice가 필요**하다. 없으면 PDF는 "생성 불가"로 실패 기록되고 DOCX의 목차에는 페이지 번호가 들어가지 않는다(번호를 임의로 만들지 않음).
 `soffice`가 PATH에 있거나 `SOFFICE_PATH` 환경변수로 경로를 지정한다(Windows는 공식 MSI를 사용자 폴더에 풀어 쓸 수 있음). 한글 글꼴은 Windows는 맑은 고딕, CI(Ubuntu)는 `fonts-noto-cjk`(OFL) + fontconfig 별칭을 사용한다 — `.github/scripts/install_report_tools.sh` 참고.
-시범 출력물 재생성: `python -m app.create_pilot_manuscript` → `python -m app.create_pilot_reports <출력폴더>`
+시범 출력물 재생성: `python -m app.create_pilot_manuscript` → `python -m app.create_pilot_reports <출력폴더>` → `python -m app.create_pilot_card_news <출력폴더>`
 
 ## 전체 스택 (Docker Compose) — 사용자 환경에서 처음 실행·검증 필요
 

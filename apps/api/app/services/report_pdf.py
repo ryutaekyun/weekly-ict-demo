@@ -32,14 +32,15 @@ def find_soffice() -> str | None:
     return None
 
 
-def convert_docx_to_pdf(docx_bytes: bytes, timeout: int = 180) -> bytes:
+def convert_office_to_pdf(data: bytes, suffix: str = "docx", timeout: int = 240) -> bytes:
+    """LibreOffice headless로 DOCX/PPTX 등을 PDF로 변환한다(보고서·카드뉴스 공용)."""
     soffice = find_soffice()
     if soffice is None:
         raise PdfUnavailableError("LibreOffice(soffice)를 찾을 수 없어 PDF를 생성할 수 없습니다")
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
-        src = tmp_path / "report.docx"
-        src.write_bytes(docx_bytes)
+        src = tmp_path / f"document.{suffix}"
+        src.write_bytes(data)
         profile = tmp_path / "lo_profile"
         cmd = [
             soffice, "--headless", "--norestore", "--nolockcheck",
@@ -47,10 +48,14 @@ def convert_docx_to_pdf(docx_bytes: bytes, timeout: int = 180) -> bytes:
             "--convert-to", "pdf", "--outdir", str(tmp_path), str(src),
         ]
         proc = subprocess.run(cmd, capture_output=True, timeout=timeout)
-        out = tmp_path / "report.pdf"
+        out = tmp_path / "document.pdf"
         if proc.returncode != 0 or not out.exists():
             raise RuntimeError(f"PDF 변환 실패(code={proc.returncode}): {proc.stderr.decode('utf-8', 'ignore')[:500]}")
         return out.read_bytes()
+
+
+def convert_docx_to_pdf(docx_bytes: bytes, timeout: int = 180) -> bytes:
+    return convert_office_to_pdf(docx_bytes, "docx", timeout)
 
 
 def _squash(text: str) -> str:

@@ -12,6 +12,10 @@ from app.models.manuscript_version import ManuscriptVersion
 from app.models.manuscript_footnote import ManuscriptFootnote
 from app.models.manuscript_comment import ManuscriptComment
 from app.models.report import Report, ReportExport, ReportItem, ReportTemplate
+from app.models.card_news import (
+    CardNews, CardNewsCard, CardNewsElement, CardNewsEvidence, CardNewsExport, CardNewsReview, CardNewsTemplate,
+    CardNewsVersion,
+)
 from app.models.approval import Approval
 from app.models.publication import Publication
 from app.models.audit_log import AuditLog
@@ -45,6 +49,14 @@ __all__ = [
     "ReportItem",
     "ReportExport",
     "ReportTemplate",
+    "CardNews",
+    "CardNewsCard",
+    "CardNewsElement",
+    "CardNewsEvidence",
+    "CardNewsExport",
+    "CardNewsReview",
+    "CardNewsTemplate",
+    "CardNewsVersion",
     "Approval",
     "Publication",
     "AuditLog",

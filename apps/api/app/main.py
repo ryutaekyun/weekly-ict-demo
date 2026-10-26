@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import auth, candidates, dashboard, documents, editions, issues, manuscripts, reports, sources, users
+from app.api import auth, candidates, card_news, dashboard, documents, editions, issues, manuscripts, reports, sources, users
 from app.core.config import settings
 from app.core.csrf import CSRFMiddleware
 
@@ -26,6 +26,7 @@ app.include_router(editions.router)
 app.include_router(manuscripts.router)
 app.include_router(users.router)
 app.include_router(reports.router)
+app.include_router(card_news.router)
 app.include_router(reports.template_router)
 
 
