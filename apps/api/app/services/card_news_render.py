@@ -40,12 +40,27 @@ def check_rendered(pdf_bytes: bytes, scenes: list[dict]) -> list[dict]:
             if idx >= len(scenes):
                 break
             rect = page.rect
-            words = page.get_text("words")
-            for x0, y0, x1, y1, word, *_ in words:
-                if x1 > rect.x1 + 1 or y1 > rect.y1 + 1 or x0 < rect.x0 - 1 or y0 < rect.y0 - 1:
-                    issues.append({"level": "error", "code": "rendered_out_of_bounds",
-                                   "message": f"{idx + 1}번 카드에서 글자 '{word}'가 카드 밖으로 나갑니다(글자 영역 {x0:.0f},{y0:.0f}~{x1:.0f},{y1:.0f}pt / 카드 {rect.width:.0f}×{rect.height:.0f}pt)", "key": None})
+            # 글자 영역(bbox)은 글꼴 메트릭(대체 글꼴의 큰 ascent/descent) 때문에 실제보다 크게 잡힐 수 있어,
+            # 세로는 글자 기준선(baseline) 기준으로, 가로는 글자 폭 기준으로 카드 이탈을 판정한다.
+            hit = None
+            for block in page.get_text("dict")["blocks"]:
+                for line in block.get("lines", []):
+                    for span in line["spans"]:
+                        if not span["text"].strip():
+                            continue
+                        x0, _y0, x1, _y1 = span["bbox"]
+                        baseline, size = span["origin"][1], span["size"]
+                        if x1 > rect.x1 + 1 or x0 < rect.x0 - 1 or baseline > rect.y1 + 1 or baseline - size * 0.8 < rect.y0 - 1:
+                            hit = (span["text"].strip(), x0, baseline, x1)
+                            break
+                    if hit:
+                        break
+                if hit:
                     break
+            if hit:
+                issues.append({"level": "error", "code": "rendered_out_of_bounds",
+                               "message": f"{idx + 1}번 카드에서 글자 '{hit[0][:12]}'가 카드 밖으로 나갑니다(x {hit[1]:.0f}~{hit[3]:.0f}, 기준선 y {hit[2]:.0f}pt / 카드 {rect.width:.0f}×{rect.height:.0f}pt)",
+                               "key": None})
             page_text = "".join(page.get_text().split())
             for it in scenes[idx]["items"]:
                 if it["type"] != "text" or it.get("placeholder"):
