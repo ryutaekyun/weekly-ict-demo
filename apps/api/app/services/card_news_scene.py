@@ -22,7 +22,7 @@ PAD_CM = 0.08
 def _char_em(ch: str) -> float:
     o = ord(ch)
     if o >= 0x2E80 or 0x1100 <= o <= 0x11FF or 0x3130 <= o <= 0x318F:
-        return 1.0
+        return 1.05  # 글꼴 대체 시 약간 넓어질 수 있어 보수적으로 추정
     if ch == " ":
         return 0.28
     if ch.isdigit():
@@ -170,11 +170,11 @@ class SceneBuilder:
     def footer_note(self, color):
         notes = []
         if self.ctx.get("is_synthetic"):
-            notes.append("합성 데이터")
+            notes.append("합성")
         if self.ctx.get("is_pilot"):
             notes.append("시범")
         if not self.ctx.get("iitp_confirmed"):
-            notes.append("내부 검토용·IITP 확인 전")
+            notes.append("내부용·IITP 미확인")
         if notes:
             self.label(0.55, 15.1, 5.9, 0.42, " · ".join(notes), 7, color, valign="middle")
 
