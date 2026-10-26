@@ -477,9 +477,14 @@ def restore_version(db: Session, cn: CardNews, ver: CardNewsVersion, user_id: uu
     snapshot(db, cn, user_id, note=f"복원 전 상태(v{ver.version_no}로 복원)", milestone=True)
     for ev in db.scalars(select(CardNewsEvidence).where(CardNewsEvidence.card_news_id == cn.id)).all():
         db.delete(ev)
-    for card in _cards(db, cn):
+    old_cards = _cards(db, cn)
+    for card in old_cards:
         for el in db.scalars(select(CardNewsElement).where(CardNewsElement.card_id == card.id)).all():
             db.delete(el)
+    db.flush()  # 자식(근거·요소)을 먼저 지운 뒤 카드를 지운다(PostgreSQL 외래키 순서)
+    for review in db.scalars(select(CardNewsReview).where(CardNewsReview.card_news_id == cn.id)).all():
+        review.card_id = None  # 복원으로 사라질 카드를 가리키는 검토 의견은 카드 연결만 해제한다
+    for card in old_cards:
         db.delete(card)
     db.flush()
     cn.title = data["title"]

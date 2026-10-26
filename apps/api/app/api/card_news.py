@@ -352,6 +352,7 @@ def delete_card(card_news_id: uuid.UUID, card_id: uuid.UUID, lock_version: int, 
         rv.card_id = None
     for el in svc._elements(db, card).values():
         db.delete(el)
+    db.flush()  # 자식(요소)을 먼저 지운 뒤 카드를 지운다(PostgreSQL 외래키 순서)
     db.delete(card)
     db.flush()
     for i, c in enumerate(svc._cards(db, cn)):

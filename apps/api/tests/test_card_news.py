@@ -456,7 +456,7 @@ def test_png_export_renders_real_high_resolution_cards_same_ratio_as_pptx(client
     exp = client.post(f"/card-news/{cn['id']}/exports", headers=h, json={"file_format": "png", "short_px": 1000})
     assert exp.status_code == 201, exp.text
     e = exp.json()
-    assert e["status"] == "success", e
+    assert e["status"] == "success", e["error_message"]
     assert e["png_width_px"] >= 1000 and e["card_count"] == 3  # 짧은 변 1,000px 이상
     validation = json.loads(e["validation_json"])
     assert validation["rendered"] is True
