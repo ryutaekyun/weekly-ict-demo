@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { getCurrentUser, type CurrentUser } from "@/lib/api";
 import {
-  aiCancel, aiCandidate, aiCreateApproval, aiEstimate, aiInsert, aiList, aiGet, aiReviewClaim, aiRun, aiSaveEvaluation, aiStatus, EVAL_CRITERIA,
+  aiCancel, aiCandidate, aiCreateApproval, aiEstimate, aiInsert, aiList, aiGet, aiReviewClaim, aiPreflight, aiRun, aiSaveEvaluation, aiStatus, EVAL_CRITERIA, type AiPreflight,
   type AiAnalysis, type AiClaim, type AiEstimate, type AiKind, type AiStatus, type InsertPosition,
 } from "@/lib/aiApi";
 
@@ -55,6 +55,7 @@ export default function AiPanel({ kind, targetId, title, buttonLabel, documentId
   const [evalCounts, setEvalCounts] = useState({ semantic: 0, insufficient: 0, wrongSource: 0 });
   const [evalNotes, setEvalNotes] = useState("");
   const [approveCost, setApproveCost] = useState("");
+  const [preflight, setPreflight] = useState<AiPreflight | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const loadLatest = useCallback(async () => {
@@ -103,11 +104,16 @@ export default function AiPanel({ kind, targetId, title, buttonLabel, documentId
     }
   }
 
+  async function runPreflight() {
+    setError(null);
+    try { setPreflight(await aiPreflight(kind, targetId, documentIds)); } catch (e) { setError(e instanceof Error ? e.message : "사전 점검 실패"); }
+  }
+
   async function approveCall() {
     if (!estimate) return;
     setError(null);
     try {
-      const cost = Number(approveCost || Math.max(0.01, Math.ceil((estimate.est_cost_usd ?? 0) * 150) / 100));
+      const cost = Number(approveCost || Math.max(0.01, Math.ceil((estimate.max_cost_usd ?? estimate.est_cost_usd ?? 0) * 115) / 100));
       await aiCreateApproval({ kind, target_id: targetId, max_cost_usd: cost, valid_minutes: 60, note: "화면에서 1건 승인" });
       setEstimate(await aiEstimate(kind, targetId, documentIds));
       setMsg(`이 1건 호출을 승인했습니다(예산 상한 $${cost}, 60분 유효, 한 번 쓰면 소멸).`);
@@ -214,6 +220,7 @@ export default function AiPanel({ kind, targetId, title, buttonLabel, documentId
           <p style={{ fontSize: 12.5, margin: "6px 0" }}>
             공급자 {estimate.provider}{estimate.model ? ` / ${estimate.model}` : ""} · 예상 입력 {estimate.est_input_tokens.toLocaleString()}토큰 · 예상 출력 최대 {estimate.est_output_tokens.toLocaleString()}토큰 ·
             예상 비용 {estimate.est_cost_usd == null ? <b data-testid="ai-cost-unknown">계산 불가(단가 미설정)</b> : <b>약 ${estimate.est_cost_usd}</b>}{estimate.is_mock ? " (모의 호출 — 실제 비용 미검증)" : " (추정치, 실제 청구금액 아님)"}
+            {estimate.max_cost_usd != null && <span data-testid="ai-max-cost"> · 최대 계산 비용 ${estimate.max_cost_usd}(출력 {estimate.max_output_tokens.toLocaleString()}토큰까지 사용한다고 가정)</span>}
           </p>
           <p style={{ fontSize: 11.5, color: "var(--ink-muted)", margin: "0 0 6px" }}>{estimate.price_note} 원문 공개자료만 외부 AI 서비스로 전송됩니다.</p>
           {estimate.existing_candidate_ids.length > 0 && <p style={{ fontSize: 12, color: "var(--warn)" }}>이 이슈에는 이미 후보주제 {estimate.existing_candidate_ids.length}건이 있습니다. 결과는 기존 후보에 연결할 수 있습니다.</p>}
@@ -228,6 +235,19 @@ export default function AiPanel({ kind, targetId, title, buttonLabel, documentId
                   <button className="tbtn primary" data-testid="ai-approve" onClick={approveCall}>이 1건 호출 승인</button>
                 </div>
               ) : <div style={{ fontSize: 12, marginTop: 4 }}>관리자에게 이 대상의 호출 승인을 요청하세요.</div>}
+            </div>
+          )}
+          {me?.role === "admin" && estimate.approval_required && (
+            <div style={{ margin: "6px 0" }}>
+              <button className="tbtn" data-testid="ai-preflight" onClick={runPreflight}>첫 호출 사전 점검(유료 호출 없음)</button>
+              {preflight && (
+                <div data-testid="ai-preflight-result" style={{ ...box, fontSize: 12, marginTop: 6 }}>
+                  모델 {preflight.model} · API {preflight.api_version ?? "-"} · 전달 키 {preflight.request_top_level_keys.join(", ")} · 미전송 {preflight.not_sent.join(", ")}<br />
+                  입력 토큰 {preflight.input_tokens.toLocaleString()} ({preflight.input_tokens_measured ? "실측" : "미측정·추정"}) — {preflight.input_tokens_note}<br />
+                  최대 출력 {preflight.max_tokens.toLocaleString()} · 예상 ${preflight.expected_cost_usd ?? "계산 불가"} · 최대 ${preflight.max_cost_usd ?? "계산 불가"} · 권장 승인 상한 ${preflight.recommended_approval_cap_usd ?? "-"}<br />
+                  연결 상태: {preflight.connection === "unverified" ? "연결 미검증(키 설정됨)" : "연결 미검증(설정 없음)"} · 지시문+원문 해시 {preflight.prompt_sha256.slice(0, 12)}
+                </div>
+              )}
             </div>
           )}
           {estimate.approval && <p data-testid="ai-approved" style={{ fontSize: 12, color: "var(--ok)" }}>승인됨: 예산 상한 ${estimate.approval.max_cost_usd} · {estimate.approval.expires_at.slice(0, 16).replace("T", " ")}까지 유효 · 1회용</p>}

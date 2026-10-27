@@ -247,21 +247,22 @@ def estimate(db: Session, kind: str, target_id: uuid.UUID, document_ids: list[uu
     pmodel = provider.model if provider else (os.environ.get("AI_MODEL", "").strip() or None)
     price, price_version, _ = get_price(db, pname, pmodel)
     cost = cost_usd(price, in_tok, EST_OUTPUT_TOKENS)
+    max_cost = cost_usd(price, in_tok, MAX_OUTPUT_TOKENS)  # 출력이 max_tokens(사고 토큰 포함)까지 가는 최악의 경우
     blockers = []
     if not inputs:
         blockers.append("원문 전문이 확보된 문서가 없어 분석을 보류합니다(근거 부족).")
     need_approval = bool(provider and approval_required(provider.name))
     appr = find_approval(db, kind, target_id, provider.model if provider else None) if need_approval else None
     cap = per_request_cap()
-    if cap is not None and cost is not None and cost > cap:
-        blockers.append(f"예상 비용 ${cost}가 요청당 상한 ${cap}를 넘어 호출 전에 차단됩니다")
+    if cap is not None and max_cost is not None and max_cost > cap:
+        blockers.append(f"최대 계산 비용 ${max_cost}(출력 {MAX_OUTPUT_TOKENS:,}토큰 가정)가 요청당 상한 ${cap}를 넘어 호출 전에 차단됩니다")
     if need_approval and cost is None:
         blockers.append("단가가 설정되지 않아 예산 상한을 검사할 수 없습니다 — 단가표를 먼저 설정하세요")
     return {
         "kind": kind, "target_type": target_type, "target_id": str(target_id), "documents": [
             {k: i[k] for k in ("id", "title", "org", "country", "published", "url", "chars", "truncated", "full_chars")} for i in inputs
         ], "skipped": skipped, "input_chars": chars, "est_input_tokens": in_tok, "est_output_tokens": EST_OUTPUT_TOKENS,
-        "est_cost_usd": cost, "pricing_version": price_version, "price_known": price is not None, "provider": pname, "model": pmodel, "configured": provider is not None,
+        "est_cost_usd": cost, "max_cost_usd": max_cost, "max_output_tokens": MAX_OUTPUT_TOKENS, "pricing_version": price_version, "price_known": price is not None, "provider": pname, "model": pmodel, "configured": provider is not None,
         "is_mock": bool(provider and provider.name == "mock"), "blockers": blockers,
         "approval_required": need_approval, "approval": approval_out(appr) if appr else None, "max_cost_per_request_usd": cap, "existing_candidate_ids": extra.get("existing_candidate_ids", []),
         "price_note": ("비용은 토큰 수를 거칠게 추정한 값이며 실제 제공자 청구액과 다를 수 있습니다. 단가 기준: " + (price_version or "단가 미설정 — 관리자가 '가격표'에서 설정해야 비용을 계산할 수 있습니다")
@@ -346,8 +347,8 @@ def create_approval(db: Session, admin: User, kind: str, target_id: uuid.UUID, m
         raise AIRequestError(422, "; ".join(est["blockers"]))
     if est["est_cost_usd"] is None:
         raise AIRequestError(409, "단가가 설정되지 않아 예산 상한을 검증할 수 없습니다 — 먼저 설정 화면의 단가표를 확인하세요", code="price_unknown")
-    if max_cost_usd < est["est_cost_usd"]:
-        raise AIRequestError(422, f"예산 상한 ${max_cost_usd}가 이 호출의 예상 비용 ${est['est_cost_usd']}보다 작아 승인해도 호출 전에 차단됩니다")
+    if max_cost_usd < est["max_cost_usd"]:
+        raise AIRequestError(422, f"예산 상한 ${max_cost_usd}가 이 호출의 최대 계산 비용 ${est['max_cost_usd']}(출력 {MAX_OUTPUT_TOKENS:,}토큰 가정)보다 작아 승인해도 호출 전에 차단됩니다")
     a = AICallApproval(kind=kind, target_id=target_id, model=provider.model, max_cost_usd=max_cost_usd, note=note, approved_by_user_id=admin.id,
                        expires_at=_utcnow() + timedelta(minutes=minutes))
     db.add(a)
@@ -480,7 +481,15 @@ def run_analysis(
     system, user_prompt = build_prompt(kind, inputs, extra)
     est_in = estimate_tokens(len(system) + len(user_prompt))
     price0, _, _ = get_price(db, provider.name, provider.model)
-    est_cost0 = cost_usd(price0, est_in, EST_OUTPUT_TOKENS)
+    actual_in = None
+    if provider.name != "mock" and hasattr(provider, "count_tokens"):
+        # 공식 Token Counting API(무료)로 실제 입력 토큰을 센다 — 실패(인증·모델 오류 등)하면 유료 호출 전에 중단한다(승인은 소모되지 않음)
+        try:
+            actual_in = provider.count_tokens(system, user_prompt)
+        except AIServiceError as exc:
+            raise AIRequestError(502, f"호출 전 토큰 계산에 실패해 유료 호출을 하지 않았습니다: {exc.user_message}", code=exc.code) from exc
+        est_in = actual_in
+    est_cost0 = cost_usd(price0, est_in, MAX_OUTPUT_TOKENS)  # 보수적 최대 비용(입력 실측 + 출력 상한)
     approval = None
     if approval_required(provider.name):  # 실제 호출 전 안전장치: 관리자의 1건 승인 + 예산 상한 + 단가 확인
         approval = find_approval(db, kind, target_id, provider.model)
@@ -489,10 +498,10 @@ def run_analysis(
         if est_cost0 is None:
             raise AIRequestError(409, "단가가 설정되지 않아 예산 상한을 검사할 수 없습니다 — 단가표를 확인하세요", code="price_unknown")
         if est_cost0 > approval.max_cost_usd:
-            raise AIRequestError(409, f"예상 비용 ${est_cost0}가 승인된 예산 상한 ${approval.max_cost_usd}를 넘어 호출 전에 차단했습니다", code="budget_exceeded")
+            raise AIRequestError(409, f"최대 계산 비용 ${est_cost0}(입력 {est_in:,}토큰 + 출력 상한 {MAX_OUTPUT_TOKENS:,}토큰)가 승인된 예산 상한 ${approval.max_cost_usd}를 넘어 호출 전에 차단했습니다", code="budget_exceeded")
     cap = per_request_cap()
     if cap is not None and provider.name != "mock" and (est_cost0 is None or est_cost0 > cap):
-        raise AIRequestError(409, f"예상 비용이 요청당 상한 ${cap}를 넘거나 계산할 수 없어 호출 전에 차단했습니다", code="budget_exceeded")
+        raise AIRequestError(409, f"최대 계산 비용이 요청당 상한 ${cap}를 넘거나 계산할 수 없어 호출 전에 차단했습니다", code="budget_exceeded")
     notes = list(skipped)
     for i in inputs:
         hits = ai_evidence.scan_injection(i["text"])
@@ -752,3 +761,46 @@ def claim_stats(db: Session, analysis_id: uuid.UUID) -> dict:
             "semantic_risk": sum(1 for c in facts if c.evidence_status == "semantic_risk"),
             "ratio_without_valid_evidence": round(len(bad) / len(facts), 3) if facts else 0.0,
             "researcher_verified": sum(1 for c in claims if c.researcher_status == "verified")}
+
+
+# ---------------------------------------------------------------- 첫 호출 사전 점검(유료 생성 호출 없음) ----
+SENT_PARAMS = ["model", "max_tokens", "system", "messages"]  # 생성 요청 본문의 최상위 키 — temperature·top_p·top_k·thinking은 보내지 않는다
+
+
+def preflight(db: Session, kind: str, target_id: uuid.UUID, document_ids: list[uuid.UUID] | None = None) -> dict:
+    """첫 실호출 전 점검: 실제 전달될 지시문·원문, 토큰(키가 있으면 무료 Token Counting API로 실측), 최대 계산 비용, 권장 승인 상한을 보여 준다.
+    생성(유료) 호출은 하지 않는다. 키가 없으면 토큰은 '미측정(추정)'으로 표시한다."""
+    target_type, docs, extra = resolve_documents(db, kind, target_id, document_ids)
+    inputs, skipped = build_inputs(db, docs)
+    if not inputs:
+        raise AIRequestError(422, "원문 전문이 확보된 문서가 없어 분석을 보류합니다(근거 부족)")
+    system, user_prompt = build_prompt(kind, inputs, extra)
+    provider = get_ai_provider()
+    pname = provider.name if provider else (os.environ.get("AI_PROVIDER", "").strip().lower() or "anthropic")
+    pmodel = provider.model if provider else (os.environ.get("AI_MODEL", "").strip() or "claude-sonnet-5-5")
+    price, price_version, _ = get_price(db, pname, pmodel)
+    est_in = estimate_tokens(len(system) + len(user_prompt))
+    counted, count_note = None, "키가 없어 토큰을 실측하지 못했습니다(미측정 — 문자 수 기반 추정치를 사용)"
+    if provider is not None and hasattr(provider, "count_tokens"):
+        try:
+            counted = provider.count_tokens(system, user_prompt)
+            count_note = "공식 Token Counting API(무료)로 실측한 입력 토큰입니다(공식 문서상 추정치로 실제와 약간 다를 수 있음)"
+        except AIServiceError as exc:
+            count_note = f"토큰 실측 실패: {exc.user_message}"
+    in_tok = counted if counted is not None else est_in
+    expected = cost_usd(price, in_tok, EST_OUTPUT_TOKENS)
+    maximum = cost_usd(price, in_tok, MAX_OUTPUT_TOKENS)
+    return {
+        "kind": kind, "target_id": str(target_id), "provider": pname, "model": pmodel, "api_version": "2023-06-01" if pname == "anthropic" else None,
+        "documents": [{"id": i["id"], "alias": i["alias"], "title": i["title"], "url": i["url"], "published": i["published"], "content_hash": i["content_hash"],
+                       "sent_chars": i["chars"], "full_chars": i["full_chars"], "truncated": i["truncated"]} for i in inputs],
+        "skipped": skipped, "prompt_sha256": hashlib.sha256((system + "\n" + user_prompt).encode()).hexdigest(), "system_prompt_chars": len(system), "user_prompt_chars": len(user_prompt),
+        "request_top_level_keys": SENT_PARAMS, "not_sent": ["temperature", "top_p", "top_k", "thinking", "tools", "stream"],
+        "structured_output_enabled": bool(getattr(provider, "supports_schema", False)), "max_tokens": MAX_OUTPUT_TOKENS,
+        "input_tokens": in_tok, "input_tokens_measured": counted is not None, "input_tokens_note": count_note, "estimated_input_tokens_by_chars": est_in,
+        "expected_cost_usd": expected, "max_cost_usd": maximum, "assumed_expected_output_tokens": EST_OUTPUT_TOKENS,
+        "recommended_approval_cap_usd": round(maximum * 1.15 + 0.005, 2) if maximum is not None else None,
+        "pricing_version": price_version, "price_known": price is not None,
+        "approval_required": bool(provider and approval_required(provider.name)), "connection": "unverified" if provider else "not_configured",
+        "cost_note": "예상·최대 계산 비용은 단가표 기준 추정치이며 제공자 청구금액이 아니다. 최대 계산 비용은 출력이 max_tokens(사고 토큰 포함)까지 갈 때의 상한이다.",
+    }

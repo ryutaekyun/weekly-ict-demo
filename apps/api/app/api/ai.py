@@ -253,6 +253,15 @@ def list_evaluations(analysis_id: uuid.UUID, db: Session = Depends(get_db), _: U
             for e in db.scalars(select(AIEvaluation).where(AIEvaluation.analysis_id == analysis_id).order_by(AIEvaluation.created_at)).all()]
 
 
+@router.post("/preflight")
+def preflight(payload: RunIn, db: Session = Depends(get_db), _: User = Depends(require_roles(UserRole.ADMIN))):
+    """관리자 전용 첫 호출 사전 점검 — 유료 생성 호출 없이 전달 데이터·실측 토큰(키가 있을 때, 무료 Token Counting)·최대 비용·권장 승인 상한을 확인한다."""
+    try:
+        return svc.preflight(db, payload.kind, payload.target_id, payload.document_ids)
+    except svc.AIRequestError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
 @router.post("/estimate")
 def estimate(payload: RunIn, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     try:

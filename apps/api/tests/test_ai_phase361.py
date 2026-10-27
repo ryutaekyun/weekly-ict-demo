@@ -223,6 +223,16 @@ def test_semantic_risk_and_wrong_document_links_are_reported_with_notes(client, 
 
 
 # ------------------------------------------------ H: 공급자별 오류 분류(모의 HTTP) ----
+def patch_http(monkeypatch, responder):
+    """httpx.request를 가짜로 바꾼다. 무료 Token Counting 호출(/count_tokens)에는 고정 입력 토큰을 돌려주고 나머지는 responder가 처리한다."""
+    def fake(method, url, **kw):
+        if str(url).endswith("/count_tokens"):
+            return httpx.Response(200, json={"input_tokens": 3000})
+        return responder(method, url, **kw)
+
+    monkeypatch.setattr(httpx, "request", fake)
+
+
 def _resp(status, body=None, text=None):
     return httpx.Response(status, json=body) if body is not None else httpx.Response(status, text=text or "")
 
@@ -326,26 +336,26 @@ def test_failed_calls_record_exact_code_tokens_and_leave_existing_manuscript_and
     db_session.commit()
     p = ai_service.AnthropicProvider("k", "claude-sonnet-5-5")
     use(monkeypatch, p)
-    monkeypatch.setattr(httpx, "request", lambda *a, **k: _resp(200, {"content": [{"type": "text", "text": "{"}], "usage": {"input_tokens": 3000, "output_tokens": 12000}, "stop_reason": "max_tokens"}))
+    patch_http(monkeypatch, lambda *a, **k: _resp(200, {"content": [{"type": "text", "text": "{"}], "usage": {"input_tokens": 3000, "output_tokens": 12000}, "stop_reason": "max_tokens"}))
     out = run(client, researcher, "document", doc.id).json()
     assert out["status"] == "failed" and out["error_code"] == "truncated" and "잘려" in out["error_message"] and out["provider_request_sent"] is True
     assert out["input_tokens"] == 3000 and out["output_tokens"] == 12000 and out["actual_cost_usd"] == pytest.approx(0.126) and "v1" in out["pricing_version"]
     for status, code in ((401, "auth_error"), (429, "rate_limited"), (500, "provider_5xx"), (404, "model_error")):
-        monkeypatch.setattr(httpx, "request", lambda *a, _s=status, **k: _resp(_s, {"error": {"message": "x"}}))
+        patch_http(monkeypatch, lambda *a, _s=status, **k: _resp(_s, {"error": {"message": "x"}}))
         r = run(client, researcher, "document", doc.id, force=True).json()
         assert r["status"] == "failed" and r["error_code"] == code, (status, r)
     def slow(*a, **k):
         raise httpx.ReadTimeout("t")
-    monkeypatch.setattr(httpx, "request", slow)
+    patch_http(monkeypatch, slow)
     assert run(client, researcher, "document", doc.id, force=True).json()["error_code"] == "timeout"
-    monkeypatch.setattr(httpx, "request", lambda *a, **k: _resp(200, {"content": [{"type": "text", "text": "not json"}], "usage": {"input_tokens": 5, "output_tokens": 2}, "stop_reason": "end_turn"}))
+    patch_http(monkeypatch, lambda *a, **k: _resp(200, {"content": [{"type": "text", "text": "not json"}], "usage": {"input_tokens": 5, "output_tokens": 2}, "stop_reason": "end_turn"}))
     assert run(client, researcher, "document", doc.id, force=True).json()["error_code"] == "bad_response"
     # 실패해도 기존 원고·규칙 기반 화면은 그대로
     after = client.get(f"/manuscripts/{ms['id']}", headers=researcher).json()
     assert after["body_json"] == saved["body_json"] and after["lock_version"] == saved["lock_version"]
     assert client.get(f"/documents/{doc.id}", headers=researcher).status_code == 200
     # 응답이 근거 없는 사실만 담은 경우(근거자료 없는 응답): 성공 호출이지만 검증은 '근거 부족'
-    monkeypatch.setattr(httpx, "request", lambda *a, **k: _resp(200, {"content": [{"type": "text", "text": json.dumps({"sections": [{"key": "summary", "items": [{"text": "근거 없는 주장임", "type": "fact", "evidence": []}]}]})}],
+    patch_http(monkeypatch, lambda *a, **k: _resp(200, {"content": [{"type": "text", "text": json.dumps({"sections": [{"key": "summary", "items": [{"text": "근거 없는 주장임", "type": "fact", "evidence": []}]}]})}],
                                                                        "usage": {"input_tokens": 10, "output_tokens": 5}, "stop_reason": "end_turn"}))
     nb = run(client, researcher, "document", doc.id, force=True).json()
     assert nb["status"] == "completed" and nb["verification_status"] == "insufficient"

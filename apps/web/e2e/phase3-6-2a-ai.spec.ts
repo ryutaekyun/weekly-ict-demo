@@ -48,6 +48,11 @@ test("3-6.2A — 실제 AI 호출은 관리자의 1건 승인이 있어야 실�
   if ((await again.count()) > 0) await again.click(); else await panel.getByTestId("ai-run").click();
   await expect(panel.getByTestId("ai-approval-needed")).toContainText("관리자의 1건 승인이 필요합니다");
   await expect(panel.getByTestId("ai-confirm")).toBeDisabled(); // 승인 전에는 실행할 수 없다
+  await panel.getByTestId("ai-preflight").click(); // 관리자 사전 점검: 유료 호출 없이 전달 형식·토큰(키가 없으면 미측정)·최대 비용을 보여 준다
+  const pre = panel.getByTestId("ai-preflight-result");
+  await expect(pre).toContainText("model, max_tokens, system, messages");
+  await expect(pre).toContainText("temperature, top_p, top_k, thinking");
+  await expect(pre).toContainText("미측정");
   await panel.getByLabel("예산 상한(USD)").fill("0.10");
   await panel.getByTestId("ai-approve").click();
   await expect.poll(() => approvalBody).not.toBeNull();

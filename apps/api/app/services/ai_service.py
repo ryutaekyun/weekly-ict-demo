@@ -181,6 +181,16 @@ class AnthropicProvider:
             raise err
         return AIResult(provider=self.name, model=self.model, text=text, stop_reason=stop, input_tokens=used[0], output_tokens=used[1], raw_text=text)
 
+    def count_tokens(self, system_prompt: str, user_prompt: str) -> int:
+        """공식 Token Counting API(POST /v1/messages/count_tokens, 무료·별도 요청 한도)로 실제 입력 토큰 수를 센다. 생성(유료) 호출이 아니다.
+        공식 문서상 값은 추정치로 실제와 약간 다를 수 있다. thinking·temperature 등은 보내지 않는다(생성 호출과 같은 본문 형식)."""
+        resp = _http("POST", "https://api.anthropic.com/v1/messages/count_tokens", self.name, headers=self._headers(),
+                     json={"model": self.model, "system": system_prompt, "messages": [{"role": "user", "content": user_prompt}]})
+        try:
+            return int(resp.json()["input_tokens"])
+        except (ValueError, KeyError, TypeError) as exc:
+            raise AIBadResponseError("토큰 계산 응답을 해석하지 못함") from exc
+
     def list_models(self) -> list[str]:
         """키로 실제 사용 가능한 모델 ID 목록(진단용). 토큰을 쓰지 않는 조회 호출이다."""
         data = _http("GET", "https://api.anthropic.com/v1/models?limit=100", self.name, headers=self._headers()).json()

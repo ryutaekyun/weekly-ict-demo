@@ -28,12 +28,12 @@ FR_API = "https://www.federalregister.gov/api/v1/documents"
 
 # (구분, 원문 URL에 포함된 문자열 또는 제목 일부, 분석 목적, 선정 이유)
 CURATED_DOCS = [
-    ("정책·규제 — 통신·주파수", "upper-c-band", "핵심 변경·일정·기관 입장 요약 정확성", "FCC의 3.7–4.2 GHz 대역 유연 사용 규제 — 통신 정책, 분량이 작아 비용이 낮음"),
+    ("정책·규제 — 통신·주파수", "upper-c-band", "핵심 변경·일정·기관 입장 요약 정확성", "FCC의 3.7–4.2 GHz 대역 유연 사용 규제 — 실제 ICT(통신) 정책자료·공식 1차 출처·짧은 원문, **첫 실호출 대상**"),
     ("정책·규제 — 사이버보안", "request-for-information-rfi-on-modernizing-the-national-vulnerability", "RFI의 질의 항목·마감일·대상 구분", "NIST 취약점 데이터베이스 현대화 RFI — 보안 정책 자료"),
     ("정책·규제 — 반도체 수출통제", "foreign-produced-direct-product-rule-additions", "복잡한 규정의 적용 대상·시행일·예외 구분(원문 앞 12,000자 한도 확인)", "BIS 첨단 컴퓨팅·반도체 제조 장비 수출통제 — 반도체 정책 핵심 문서(원문이 매우 길어 절단 표시 검증 포함)"),
     ("기술·연구 — AI", "Ask to Distill", "연구 기여·수치 요약, 보고서 활용 가능성", "활용가치 '우선' 판정을 받은 AI 연구 논문"),
     ("기술·연구 — AI 보안", "PROVISO", "연구 방법·결과 수치 요약, 과장 여부", "LLM 에이전트 보안 연구 논문"),
-    ("후속 규정 — FMVSS 305a 시행일 연기", "2025-02582", "발표일·시행일·준수 시한 구분, 후속 규정이 바꾼 것과 바꾸지 않은 것 구분", "2024-28707 최종 규정의 시행일을 2025.3.20.으로 연기한 공식 후속 규정(분량 작음 — 첫 실호출 후보)"),
+    ("후속 규정 — FMVSS 305a 시행일 연기", "2025-02582", "발표일·시행일·준수 시한 구분, 후속 규정이 바꾼 것과 바꾸지 않은 것 구분", "2024-28707 최종 규정의 시행일을 2025.3.20.으로 연기한 공식 후속 규정(분량 작음)"),
 ]
 HOLD_DOC = ("근거 부족 — 원문 전문 없음", "launches-centers-ai-manufacturing", "원문 전문이 없을 때 호출 없이 '분석 보류'(비용 0)가 되는지", "AI 관련 NIST 보도자료이나 전문 추출이 이루어지지 않은 실제 사례 — 호출 비용이 들지 않는 안전 검증")
 
@@ -110,7 +110,7 @@ def build(db) -> str:
         est = svc.estimate(db, "document", d.id)
         c = _c(est)
         total_in += est["est_input_tokens"]; total_out += est["est_output_tokens"]; total += c
-        if first_call is None and "2025-02582" in d.origin_url:
+        if first_call is None and "upper-c-band" in d.origin_url:
             first_call = (d, est, c)
         out.append(f"| {i} | {cat} | {d.title[:70]} | {d.origin_url} ({_reach(d.origin_url)}) | {field} · {rating} | {d.published_at.date() if d.published_at else '-'} · {_fr_meta(d.origin_url)} | {len(ft.full_text):,}자(보냄 {est['documents'][0]['chars']:,}자) | {purpose} | {why} | {est['est_input_tokens']:,} / {est['est_output_tokens']:,} | ${c} | {_facts(ft.full_text)} |")
     hd = _find_doc(db, HOLD_DOC[1])
@@ -177,7 +177,7 @@ def build(db) -> str:
         out.append(f"| {cand.title[:70]} | 2024-28707 + 2025-02582 | 시행일 연기를 반영한 사실 문장 초안의 근거 매핑률, 삽입 후 각주 미검증 상태, 원문 변경 재검토 연계 | {est['est_input_tokens']:,} / {est['est_output_tokens']:,} | ${c} |")
     out += ["", "## 6. 비용 합계(추정·상한)", "",
             f"- 전체 계획: 입력 약 {total_in:,} 토큰 · 출력 상한 약 {total_out:,} 토큰 · **예상 비용 약 ${round(total, 2)}** (claude-sonnet-5-5 단가 기준).",
-            (f"- **최초 실호출 1건(권장)**: {first_call[0].title[:60]} ({first_call[0].origin_url}) — 예상 입력 {first_call[1]['est_input_tokens']:,} / 출력 상한 {first_call[1]['est_output_tokens']:,} 토큰, **예상 비용 약 ${first_call[2]}**. 승인 예산 상한은 예상 비용의 1.5배 이내로 권장." if first_call else "- 최초 실호출 1건: 2025-02582를 DB에 추가한 뒤 지정한다."),
+            (f"- **최초 실호출 1건(권장)**: {first_call[0].title[:60]} ({first_call[0].origin_url}) — 예상 입력 {first_call[1]['est_input_tokens']:,} / 출력 상한 {first_call[1]['est_output_tokens']:,} 토큰, **예상 비용 약 ${first_call[2]}**. 최대 계산 비용(출력 12,000토큰 가정)과 권장 승인 상한은 사전 점검 화면에서 확인한다(제안: 첫 호출 상한 $0.15 이내)." if first_call else "- 최초 실호출 1건: 2025-02582를 DB에 추가한 뒤 지정한다."),
             "- 요청별 상한: 관리자 승인마다 예산 상한을 지정하고, 전역 상한(`AI_MAX_COST_PER_REQUEST_USD`)을 둘 수 있다. 예상 비용이 상한을 넘으면 호출 전에 차단된다.",
             "- 예상 소요 시간(참고): 요청당 수십 초~2분. 다른 모델을 쓰면 단가표에 맞춰 다시 계산한다.", "",
             "## 7. 품질 평가(실제 호출 후 연구원이 7개 항목으로 평가)", "",

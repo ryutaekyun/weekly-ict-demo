@@ -11,7 +11,7 @@ export type AiStatus = {
 
 export type AiEstimate = {
   kind: AiKind; documents: { id: string; title: string; org: string | null; country: string | null; published: string | null; chars: number; truncated: boolean }[];
-  skipped: string[]; input_chars: number; est_input_tokens: number; est_output_tokens: number; est_cost_usd: number | null; pricing_version: string | null; price_known: boolean;
+  skipped: string[]; input_chars: number; est_input_tokens: number; est_output_tokens: number; est_cost_usd: number | null; max_cost_usd: number | null; max_output_tokens: number; pricing_version: string | null; price_known: boolean;
   provider: string; model: string | null; configured: boolean; is_mock: boolean; blockers: string[]; existing_candidate_ids: string[]; price_note: string;
   approval_required: boolean; approval: AiApproval | null; max_cost_per_request_usd: number | null;
 };
@@ -99,3 +99,11 @@ export const aiSaveEvaluation = (id: string, body: { scores: Record<string, stri
 export type EvalGroup = { evaluations: number; criteria: Record<string, Record<string, number>>; facts: number; facts_without_valid_evidence: number; ratio_without_valid_evidence: number | null;
   semantic_mismatch_cases: number; insufficient_evidence_cases: number; wrong_source_cases: number };
 export const aiEvaluationSummary = () => apiFetch<{ real: EvalGroup; mock: EvalGroup; note: string }>("/ai/evaluation-summary");
+
+export type AiPreflight = {
+  provider: string; model: string; api_version: string | null; documents: { id: string; alias: string; title: string; url: string; published: string | null; content_hash: string; sent_chars: number; full_chars: number; truncated: boolean }[];
+  prompt_sha256: string; request_top_level_keys: string[]; not_sent: string[]; max_tokens: number; input_tokens: number; input_tokens_measured: boolean; input_tokens_note: string;
+  expected_cost_usd: number | null; max_cost_usd: number | null; recommended_approval_cap_usd: number | null; pricing_version: string | null; approval_required: boolean; connection: string; cost_note: string;
+};
+export const aiPreflight = (kind: AiKind, target_id: string, document_ids?: string[]) =>
+  apiFetch<AiPreflight>("/ai/preflight", { method: "POST", body: JSON.stringify({ kind, target_id, document_ids }) });

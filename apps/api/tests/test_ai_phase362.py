@@ -13,6 +13,7 @@ from app.services import ai_analysis_service as svc
 from app.services import ai_service
 from tests.conftest import auth_headers, make_user
 from tests.test_ai_phase36 import FMVSS_A, FakeProvider, doc_payload, item, run, use
+from tests.test_ai_phase361 import patch_http
 from tests.test_phase35 import make_doc
 
 Q = "The final rule takes effect on February 18, 2025."
@@ -114,7 +115,7 @@ def test_api_key_never_appears_in_errors_raw_responses_status_or_logs(client, db
     p = ai_service.AnthropicProvider(key, "fake-model-1")
     use(monkeypatch, p)
     assert approve(client, env).status_code == 200
-    monkeypatch.setattr(httpx, "request", lambda *a, **k: httpx.Response(401, json={"error": {"message": f"invalid x-api-key {key}"}}))
+    patch_http(monkeypatch, lambda *a, **k: httpx.Response(401, json={"error": {"message": f"invalid x-api-key {key}"}}))
     out = run(client, env["res"], "document", env["doc"].id).json()
     assert out["error_code"] == "auth_error" and key not in json.dumps(out) and "[REDACTED]" in out["error_message"]
     row = db_session.query(AIAnalysis).one()
@@ -122,7 +123,7 @@ def test_api_key_never_appears_in_errors_raw_responses_status_or_logs(client, db
     assert key not in json.dumps(client.get("/ai/status", headers=env["res"]).json())
     assert approve(client, env).status_code == 200
     body = {"content": [{"type": "text", "text": json.dumps(GOOD) + f" leak {key}"}], "usage": {"input_tokens": 10, "output_tokens": 5}, "stop_reason": "end_turn"}
-    monkeypatch.setattr(httpx, "request", lambda *a, **k: httpx.Response(200, json=body))
+    patch_http(monkeypatch, lambda *a, **k: httpx.Response(200, json=body))
     ok = run(client, env["res"], "document", env["doc"].id, force=True).json()
     assert ok["status"] == "completed"
     raw = db_session.query(AIAnalysis).filter_by(status="completed").one().raw_response_text
@@ -188,3 +189,69 @@ def test_quality_evaluation_requires_all_criteria_and_never_mixes_mock_with_real
     use(monkeypatch, FakeProvider(error=ai_service.AIServerError("500")))
     bad = run(client, env["res"], "document", env["doc"].id, force=True).json()
     assert client.post(f"/ai/analyses/{bad['id']}/evaluation", headers=env["res"], json={"scores": scores}).status_code == 409  # 완료된 분석만 평가
+
+
+def test_preflight_measures_tokens_with_free_counting_api_and_never_calls_generation(client, db_session, env, monkeypatch):
+    p = ai_service.AnthropicProvider("sk-ant-test-0123456789abcdefghij", "fake-model-1")
+    use(monkeypatch, p)
+    calls = []
+
+    def responder(method, url, **kw):
+        calls.append(str(url))
+        return httpx.Response(500, json={"error": {"message": "생성 호출이 일어나면 안 됨"}})
+
+    patch_http(monkeypatch, responder)
+    out = client.post("/ai/preflight", headers=env["adm"], json={"kind": "document", "target_id": str(env["doc"].id)}).json()
+    assert out["input_tokens"] == 3000 and out["input_tokens_measured"] is True and "Token Counting" in out["input_tokens_note"]
+    assert out["max_tokens"] == 12000 and out["max_cost_usd"] == pytest.approx(3000 * 2 / 1e6 + 12000 * 10 / 1e6) and out["expected_cost_usd"] < out["max_cost_usd"]
+    assert out["recommended_approval_cap_usd"] >= out["max_cost_usd"] and out["request_top_level_keys"] == ["model", "max_tokens", "system", "messages"]
+    assert {"temperature", "top_p", "top_k", "thinking"} <= set(out["not_sent"]) and out["connection"] == "unverified" and out["approval_required"] is True
+    assert out["documents"][0]["content_hash"] and out["prompt_sha256"] and calls == []  # 생성 호출 없음(토큰 계산은 별도 무료 엔드포인트)
+    assert client.post("/ai/preflight", headers=env["res"], json={"kind": "document", "target_id": str(env["doc"].id)}).status_code == 403  # 관리자 전용
+    use(monkeypatch, None)
+    nokey = client.post("/ai/preflight", headers=env["adm"], json={"kind": "document", "target_id": str(env["doc"].id)}).json()
+    assert nokey["input_tokens_measured"] is False and "미측정" in nokey["input_tokens_note"] and nokey["connection"] == "not_configured"
+
+
+def test_gate_uses_measured_tokens_and_max_output_cost_and_stops_before_paid_call(client, db_session, env, monkeypatch):
+    p = ai_service.AnthropicProvider("sk-ant-test-0123456789abcdefghij", "fake-model-1")
+    use(monkeypatch, p)
+    sent = []
+    count = {"v": 3000}
+
+    def responder(method, url, **kw):
+        sent.append(str(url))
+        return httpx.Response(200, json={"content": [{"type": "text", "text": json.dumps(GOOD)}], "usage": {"input_tokens": 3000, "output_tokens": 500}, "stop_reason": "end_turn"})
+
+    def fake(method, url, **kw):
+        if str(url).endswith("/count_tokens"):
+            if count["v"] is None:
+                return httpx.Response(401, json={"error": {"message": "invalid x-api-key"}})
+            return httpx.Response(200, json={"input_tokens": count["v"]})
+        return responder(method, url, **kw)
+
+    monkeypatch.setattr(httpx, "request", fake)
+    cap = approve(client, env, max_cost_usd=0.2)  # 입력 추정 + 출력 12,000토큰 최대 비용(약 $0.13) 이내
+    assert cap.status_code == 200, cap.text
+    count["v"] = 100_000  # 실측 입력이 훨씬 크면 최대 비용(입력 $0.2 + 출력 $0.12)이 상한 $0.2를 넘는다
+    r = run(client, env["res"], "document", env["doc"].id)
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "budget_exceeded" and not any(u.endswith("/v1/messages") for u in sent)
+    row = db_session.query(AICallApproval).one()
+    assert row.used_at is None  # 차단됐으므로 승인은 소모되지 않는다
+    count["v"] = None  # 무료 토큰 계산이 인증 오류 → 유료 호출 전에 중단
+    r2 = run(client, env["res"], "document", env["doc"].id)
+    assert r2.status_code == 502 and r2.json()["detail"]["code"] == "auth_error" and not any(u.endswith("/v1/messages") for u in sent)
+    assert db_session.query(AICallApproval).one().used_at is None
+    count["v"] = 3000  # 정상: 실측 3,000토큰 → 최대 비용 $0.126 ≤ $0.2 → 호출
+    ok = run(client, env["res"], "document", env["doc"].id)
+    assert ok.status_code == 200 and sum(u.endswith("/v1/messages") for u in sent) == 1
+    assert db_session.query(AICallApproval).one().used_at is not None
+
+
+def test_approval_cap_must_cover_max_output_cost(client, db_session, env, monkeypatch):
+    use(monkeypatch, FakeProvider(GOOD))
+    est = client.post("/ai/estimate", headers=env["res"], json={"kind": "document", "target_id": str(env["doc"].id)}).json()
+    assert est["max_cost_usd"] > est["est_cost_usd"] and est["max_output_tokens"] == 12000
+    low = approve(client, env, max_cost_usd=round(est["est_cost_usd"] + 0.0001, 4))  # 예상 비용만 덮는 상한은 최대 비용보다 작아 거부
+    assert low.status_code == 422 and "최대 계산 비용" in low.text
+    assert approve(client, env, max_cost_usd=round(est["max_cost_usd"] + 0.01, 3)).status_code == 200
