@@ -70,3 +70,9 @@ def auth_headers(client: TestClient, email: str) -> dict:
     assert resp.status_code == 200, resp.text
     token = resp.json()["access_token"]
     return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture(autouse=True)
+def _ai_approval_off_by_default(monkeypatch):
+    """기존 AI 테스트는 모의/가짜 공급자로 승인 게이트 없이 돌린다 — 게이트 자체는 test_ai_phase362.py가 AI_REQUIRE_APPROVAL=1로 따로 검증한다."""
+    monkeypatch.setenv("AI_REQUIRE_APPROVAL", "0")

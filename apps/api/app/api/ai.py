@@ -172,6 +172,87 @@ def diagnostics(current_user: User = Depends(require_roles(UserRole.ADMIN))):
             f"설정한 모델 '{provider.model}'이(가) 이 키로 조회되는 목록에 없습니다 — AI_MODEL을 확인하세요"}
 
 
+class ApprovalIn(BaseModel):
+    kind: str
+    target_id: uuid.UUID
+    max_cost_usd: float = Field(gt=0, le=50)
+    valid_minutes: int = Field(60, ge=5, le=1440)
+    note: str | None = Field(None, max_length=300)
+
+
+class EvaluationIn(BaseModel):
+    scores: dict[str, str]
+    semantic_mismatch_cases: int = 0
+    insufficient_evidence_cases: int = 0
+    wrong_source_cases: int = 0
+    notes: str | None = None
+
+
+@router.post("/approvals")
+def create_approval(payload: ApprovalIn, db: Session = Depends(get_db), current_user: User = Depends(require_roles(UserRole.ADMIN))):
+    """관리자가 실제(비모의) AI 호출 1건을 승인한다 — 대상·모델·예산 상한을 지정하며 한 번 쓰면 소멸한다."""
+    try:
+        a = svc.create_approval(db, current_user, payload.kind, payload.target_id, payload.max_cost_usd, payload.valid_minutes, payload.note)
+    except svc.AIRequestError as exc:
+        raise HTTPException(status_code=exc.status_code, detail={"code": exc.code, "message": exc.detail} if exc.code else exc.detail) from exc
+    log_action(db, actor_user_id=current_user.id, action="ai.approval_create", entity_type="ai_call_approval", entity_id=a.id,
+               detail={"kind": a.kind, "target_id": str(a.target_id), "model": a.model, "max_cost_usd": a.max_cost_usd})
+    db.commit()
+    return svc.approval_out(a)
+
+
+@router.get("/approvals")
+def list_approvals(db: Session = Depends(get_db), _: User = Depends(require_roles(UserRole.ADMIN))):
+    from app.models.ai_analysis import AICallApproval
+
+    return [svc.approval_out(a) for a in db.scalars(select(AICallApproval).order_by(AICallApproval.created_at.desc()).limit(50)).all()]
+
+
+@router.delete("/approvals/{approval_id}")
+def revoke_approval(approval_id: uuid.UUID, db: Session = Depends(get_db), current_user: User = Depends(require_roles(UserRole.ADMIN))):
+    from app.models.ai_analysis import AICallApproval
+
+    a = db.get(AICallApproval, approval_id)
+    if a is None or a.used_at is not None:
+        raise HTTPException(status_code=404, detail="취소할 수 있는 미사용 승인이 없습니다")
+    a.revoked = True
+    log_action(db, actor_user_id=current_user.id, action="ai.approval_revoke", entity_type="ai_call_approval", entity_id=a.id)
+    db.commit()
+    return svc.approval_out(a)
+
+
+@router.get("/evaluation-criteria")
+def evaluation_criteria(_: User = Depends(get_current_user)):
+    return svc.EVAL_CRITERIA
+
+
+@router.get("/evaluation-summary")
+def evaluation_summary(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    return svc.evaluation_summary(db)
+
+
+@router.post("/analyses/{analysis_id}/evaluation")
+def save_evaluation(analysis_id: uuid.UUID, payload: EvaluationIn, db: Session = Depends(get_db), current_user: User = Depends(require_roles(*svc.ALLOWED_ROLES))):
+    a = _get_analysis(db, analysis_id)
+    try:
+        ev = svc.save_evaluation(db, a, current_user, payload.scores, {"semantic_mismatch_cases": payload.semantic_mismatch_cases,
+                                                                      "insufficient_evidence_cases": payload.insufficient_evidence_cases, "wrong_source_cases": payload.wrong_source_cases}, payload.notes)
+    except svc.AIRequestError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    log_action(db, actor_user_id=current_user.id, action="ai.evaluation", entity_type="ai_analysis", entity_id=a.id, detail={"is_mock": a.is_mock})
+    db.commit()
+    return {"id": str(ev.id), "is_mock": ev.is_mock}
+
+
+@router.get("/analyses/{analysis_id}/evaluations")
+def list_evaluations(analysis_id: uuid.UUID, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    from app.models.ai_analysis import AIEvaluation
+
+    return [{"id": str(e.id), "is_mock": e.is_mock, "scores": json.loads(e.scores_json), "semantic_mismatch_cases": e.semantic_mismatch_cases,
+             "insufficient_evidence_cases": e.insufficient_evidence_cases, "wrong_source_cases": e.wrong_source_cases, "notes": e.notes, "created_at": e.created_at.isoformat()}
+            for e in db.scalars(select(AIEvaluation).where(AIEvaluation.analysis_id == analysis_id).order_by(AIEvaluation.created_at)).all()]
+
+
 @router.post("/estimate")
 def estimate(payload: RunIn, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     try:

@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { getCurrentUser, type CurrentUser } from "@/lib/api";
 import {
-  aiCancel, aiCandidate, aiEstimate, aiInsert, aiList, aiGet, aiReviewClaim, aiRun, aiStatus,
+  aiCancel, aiCandidate, aiCreateApproval, aiEstimate, aiInsert, aiList, aiGet, aiReviewClaim, aiRun, aiSaveEvaluation, aiStatus, EVAL_CRITERIA,
   type AiAnalysis, type AiClaim, type AiEstimate, type AiKind, type AiStatus, type InsertPosition,
 } from "@/lib/aiApi";
 
@@ -48,6 +49,12 @@ export default function AiPanel({ kind, targetId, title, buttonLabel, documentId
   const [savedCandidate, setSavedCandidate] = useState<string | null>(null);
   const [posMode, setPosMode] = useState<"end" | "cursor" | "heading">("end");
   const [posHeading, setPosHeading] = useState("");
+  const [me, setMe] = useState<CurrentUser | null>(null);
+  const [evalOpen, setEvalOpen] = useState(false);
+  const [evalScores, setEvalScores] = useState<Record<string, string>>({});
+  const [evalCounts, setEvalCounts] = useState({ semantic: 0, insufficient: 0, wrongSource: 0 });
+  const [evalNotes, setEvalNotes] = useState("");
+  const [approveCost, setApproveCost] = useState("");
   const abortRef = useRef<AbortController | null>(null);
 
   const loadLatest = useCallback(async () => {
@@ -58,7 +65,7 @@ export default function AiPanel({ kind, targetId, title, buttonLabel, documentId
     } catch { /* 이력이 없으면 비워 둔다 */ }
   }, [targetId, kind]);
 
-  useEffect(() => { aiStatus().then(setStatus).catch(() => setStatus(null)); loadLatest(); }, [loadLatest]);
+  useEffect(() => { aiStatus().then(setStatus).catch(() => setStatus(null)); getCurrentUser().then(setMe).catch(() => undefined); loadLatest(); }, [loadLatest]);
 
   useEffect(() => {
     if (analysis?.kind === "candidate" && analysis.sections) {
@@ -94,6 +101,27 @@ export default function AiPanel({ kind, targetId, title, buttonLabel, documentId
       setState(ac.signal.aborted ? "idle" : "failed");
       setError(ac.signal.aborted ? "응답을 기다리다 중단했습니다 — 서버에서는 요청이 계속 처리됐을 수 있으니 잠시 뒤 새로고침해 결과를 확인하세요(외부 제공자에 요청이 전달됐다면 비용이 발생했을 수 있음)." : e instanceof Error ? e.message : "분석 실패");
     }
+  }
+
+  async function approveCall() {
+    if (!estimate) return;
+    setError(null);
+    try {
+      const cost = Number(approveCost || Math.max(0.01, Math.ceil((estimate.est_cost_usd ?? 0) * 150) / 100));
+      await aiCreateApproval({ kind, target_id: targetId, max_cost_usd: cost, valid_minutes: 60, note: "화면에서 1건 승인" });
+      setEstimate(await aiEstimate(kind, targetId, documentIds));
+      setMsg(`이 1건 호출을 승인했습니다(예산 상한 $${cost}, 60분 유효, 한 번 쓰면 소멸).`);
+    } catch (e) { setError(e instanceof Error ? e.message : "승인 실패"); }
+  }
+
+  async function saveEvaluation() {
+    if (!analysis) return;
+    setError(null);
+    try {
+      const r = await aiSaveEvaluation(analysis.id, { scores: evalScores, semantic_mismatch_cases: evalCounts.semantic, insufficient_evidence_cases: evalCounts.insufficient, wrong_source_cases: evalCounts.wrongSource, notes: evalNotes || undefined });
+      setMsg(r.is_mock ? "평가를 저장했습니다 — 모의 응답 평가이므로 실제 AI 정확도 집계에는 합산되지 않습니다." : "평가를 저장했습니다.");
+      setEvalOpen(false);
+    } catch (e) { setError(e instanceof Error ? e.message : "평가 저장 실패"); }
   }
 
   async function cancel() {
@@ -190,7 +218,20 @@ export default function AiPanel({ kind, targetId, title, buttonLabel, documentId
           <p style={{ fontSize: 11.5, color: "var(--ink-muted)", margin: "0 0 6px" }}>{estimate.price_note} 원문 공개자료만 외부 AI 서비스로 전송됩니다.</p>
           {estimate.existing_candidate_ids.length > 0 && <p style={{ fontSize: 12, color: "var(--warn)" }}>이 이슈에는 이미 후보주제 {estimate.existing_candidate_ids.length}건이 있습니다. 결과는 기존 후보에 연결할 수 있습니다.</p>}
           {estimate.blockers.map((b, i) => <p key={i} role="alert" style={{ color: "var(--bad)", fontSize: 12.5 }}>{b}</p>)}
-          <button className="tbtn primary" data-testid="ai-confirm" disabled={estimate.blockers.length > 0} onClick={() => execute(forceNext)}>예상 비용 확인 후 실행</button>{" "}
+          {estimate.approval_required && !estimate.approval && (
+            <div data-testid="ai-approval-needed" style={{ ...box, background: "var(--warnsoft, #FFF4D6)" }}>
+              <b style={{ fontSize: 12.5 }}>실제 AI 호출은 관리자의 1건 승인이 필요합니다</b>
+              <div style={{ fontSize: 12 }}>대상·모델·예산 상한을 지정해 승인하며, 한 번 쓰면 소멸합니다(자동 재시도·다음 문서 자동 분석 없음).{estimate.max_cost_per_request_usd != null ? ` 요청당 전역 상한 $${estimate.max_cost_per_request_usd}.` : ""}</div>
+              {me?.role === "admin" ? (
+                <div style={{ marginTop: 6 }}>
+                  <input aria-label="예산 상한(USD)" type="number" step="0.01" placeholder={`예산 상한 USD (기본 예상×1.5)`} value={approveCost} onChange={(e) => setApproveCost(e.target.value)} style={{ ...inp, width: 200 }} />{" "}
+                  <button className="tbtn primary" data-testid="ai-approve" onClick={approveCall}>이 1건 호출 승인</button>
+                </div>
+              ) : <div style={{ fontSize: 12, marginTop: 4 }}>관리자에게 이 대상의 호출 승인을 요청하세요.</div>}
+            </div>
+          )}
+          {estimate.approval && <p data-testid="ai-approved" style={{ fontSize: 12, color: "var(--ok)" }}>승인됨: 예산 상한 ${estimate.approval.max_cost_usd} · {estimate.approval.expires_at.slice(0, 16).replace("T", " ")}까지 유효 · 1회용</p>}
+          <button className="tbtn primary" data-testid="ai-confirm" disabled={estimate.blockers.length > 0 || (estimate.approval_required && !estimate.approval)} onClick={() => execute(forceNext)}>예상 비용 확인 후 실행</button>{" "}
           <button className="tbtn" onClick={() => setEstimate(null)}>닫기</button>
         </div>
       )}
@@ -284,6 +325,31 @@ export default function AiPanel({ kind, targetId, title, buttonLabel, documentId
               </div>
               <button className="tbtn primary" data-testid="ai-insert" onClick={insert}>선택한 문장 원고에 삽입</button>{" "}
               <button className="tbtn" onClick={() => { setSelected({}); setAnalysis(null); setMsg("제안을 폐기했습니다(저장된 분석 기록은 남습니다)."); }}>전체 제안 폐기</button>
+            </div>
+          )}
+          {analysis.status === "completed" && (
+            <div style={{ ...box }} data-testid="ai-evaluation">
+              <button className="tbtn" onClick={() => setEvalOpen(!evalOpen)}>{evalOpen ? "품질 평가 닫기" : "품질 평가(7개 항목)"}</button>
+              {analysis.is_mock && <span style={{ fontSize: 11.5, color: "var(--warn)", marginLeft: 8 }}>모의 응답 평가는 실제 AI 정확도 집계에 합산되지 않습니다</span>}
+              {evalOpen && (
+                <div style={{ marginTop: 8, fontSize: 12.5 }}>
+                  {Object.entries(EVAL_CRITERIA).map(([k, label]) => (
+                    <div key={k} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 3 }}>
+                      <span style={{ flex: 1 }}>{label}</span>
+                      <select aria-label={label} value={evalScores[k] ?? ""} onChange={(e) => setEvalScores({ ...evalScores, [k]: e.target.value })} style={{ ...inp, width: 120 }}>
+                        <option value="">선택</option><option value="ok">적절</option><option value="partial">일부 문제</option><option value="bad">부적절</option><option value="na">해당 없음</option>
+                      </select>
+                    </div>
+                  ))}
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "6px 0" }}>
+                    <label>의미 불일치 사례 <input aria-label="의미 불일치 사례 수" type="number" min={0} value={evalCounts.semantic} onChange={(e) => setEvalCounts({ ...evalCounts, semantic: Number(e.target.value) })} style={{ ...inp, width: 70 }} /></label>
+                    <label>근거 부족 사례 <input aria-label="근거 부족 사례 수" type="number" min={0} value={evalCounts.insufficient} onChange={(e) => setEvalCounts({ ...evalCounts, insufficient: Number(e.target.value) })} style={{ ...inp, width: 70 }} /></label>
+                    <label>잘못된 출처 연결 <input aria-label="잘못된 출처 연결 사례 수" type="number" min={0} value={evalCounts.wrongSource} onChange={(e) => setEvalCounts({ ...evalCounts, wrongSource: Number(e.target.value) })} style={{ ...inp, width: 70 }} /></label>
+                  </div>
+                  <textarea aria-label="평가 메모(오류·과장 사례)" placeholder="오류·과장 사례, 정정한 문장" value={evalNotes} onChange={(e) => setEvalNotes(e.target.value)} style={{ ...inp, minHeight: 50 }} />
+                  <button className="tbtn primary" data-testid="ai-eval-save" disabled={Object.keys(EVAL_CRITERIA).some((k) => !evalScores[k])} onClick={saveEvaluation}>평가 저장</button>
+                </div>
+              )}
             </div>
           )}
           {kind === "candidate" && analysis.status === "completed" && (

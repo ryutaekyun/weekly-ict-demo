@@ -6,12 +6,14 @@ export type AiStatus = {
   configured: boolean; provider: string | null; model: string | null; is_mock: boolean;
   daily_limit_per_user: number; message: string | null;
   connection: "not_configured" | "unverified" | "mock"; connection_note: string; config_gaps: string[];
+  require_approval: boolean; max_cost_per_request_usd: number | null;
 };
 
 export type AiEstimate = {
   kind: AiKind; documents: { id: string; title: string; org: string | null; country: string | null; published: string | null; chars: number; truncated: boolean }[];
   skipped: string[]; input_chars: number; est_input_tokens: number; est_output_tokens: number; est_cost_usd: number | null; pricing_version: string | null; price_known: boolean;
   provider: string; model: string | null; configured: boolean; is_mock: boolean; blockers: string[]; existing_candidate_ids: string[]; price_note: string;
+  approval_required: boolean; approval: AiApproval | null; max_cost_per_request_usd: number | null;
 };
 
 export type AiEvidence = { document_id: string | null; url: string; title: string | null; quote: string; found: boolean; location: string | null; note: string };
@@ -80,3 +82,20 @@ export const aiSetPricing = (body: { provider: string; model: string; input_per_
   apiFetch<{ id: string; version: number }>("/ai/pricing", { method: "PUT", body: JSON.stringify(body) });
 export type AiDiagnostics = { connection: string; verified: boolean; message: string; model?: string; error_code?: string; available_models?: string[] };
 export const aiDiagnostics = () => apiFetch<AiDiagnostics>("/ai/diagnostics", { method: "POST" });
+
+export type AiApproval = { id: string; kind: AiKind; target_id: string; model: string; max_cost_usd: number; note: string | null; expires_at: string; used_at: string | null; used_analysis_id: string | null; revoked: boolean };
+export const aiCreateApproval = (body: { kind: AiKind; target_id: string; max_cost_usd: number; valid_minutes: number; note?: string }) =>
+  apiFetch<AiApproval>("/ai/approvals", { method: "POST", body: JSON.stringify(body) });
+export const aiApprovals = () => apiFetch<AiApproval[]>("/ai/approvals");
+export const aiRevokeApproval = (id: string) => apiFetch<AiApproval>(`/ai/approvals/${id}`, { method: "DELETE" });
+
+export const EVAL_CRITERIA: Record<string, string> = {
+  c1_summary: "① 원문의 핵심 내용이 정확하게 요약되었는가", c2_values: "② 날짜·수치·단위·적용대상이 정확한가", c3_followup: "③ 기존 정책과 후속 변경사항을 구분하는가",
+  c4_evidence: "④ 모든 핵심 사실에 실제 원문 근거가 있는가", c5_no_invention: "⑤ 원문에 없는 논쟁·국가별 입장을 만들지 않는가",
+  c6_domestic: "⑥ 국내 산업 영향과 추가 검토 필요 사항을 구분하는가", c7_usable: "⑦ 작성된 문장을 실제 보고서 원고에 활용할 수 있는가",
+};
+export const aiSaveEvaluation = (id: string, body: { scores: Record<string, string>; semantic_mismatch_cases: number; insufficient_evidence_cases: number; wrong_source_cases: number; notes?: string }) =>
+  apiFetch<{ id: string; is_mock: boolean }>(`/ai/analyses/${id}/evaluation`, { method: "POST", body: JSON.stringify(body) });
+export type EvalGroup = { evaluations: number; criteria: Record<string, Record<string, number>>; facts: number; facts_without_valid_evidence: number; ratio_without_valid_evidence: number | null;
+  semantic_mismatch_cases: number; insufficient_evidence_cases: number; wrong_source_cases: number };
+export const aiEvaluationSummary = () => apiFetch<{ real: EvalGroup; mock: EvalGroup; note: string }>("/ai/evaluation-summary");

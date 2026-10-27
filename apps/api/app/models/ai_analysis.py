@@ -54,6 +54,7 @@ class AIAnalysis(Base, UUIDPKMixin, TimestampMixin):
     provider_request_sent: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)  # 외부 제공자에게 요청을 실제로 보냈는지(비용 발생 가능)
     pricing_version: Mapped[str | None] = mapped_column(String(60), nullable=True)  # 비용 계산에 쓴 단가 기준(예: "anthropic/claude-sonnet-5-5 v1 2026-10-27")
     cancel_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    raw_response_text: Mapped[str | None] = mapped_column(Text, nullable=True)  # 실제 공급자 응답 본문(공개 원문 분석 결과 JSON, 키·헤더 미포함) — 사후 대조·감사용
     source_changed_during_run: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -127,3 +128,36 @@ class AIClaim(Base, UUIDPKMixin, TimestampMixin):
     verified_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     inserted_manuscript_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("manuscripts.id"), nullable=True)
+
+
+class AICallApproval(Base, UUIDPKMixin, TimestampMixin):
+    """실제(비모의) 유료 AI 호출 1건에 대한 관리자 승인 — 대상(종류·ID)·모델·예산 상한을 지정하고 한 번 쓰면 소멸한다(자동 재시도·다음 문서 자동 분석 금지)."""
+
+    __tablename__ = "ai_call_approvals"
+
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    target_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    model: Mapped[str] = mapped_column(String(80), nullable=False)
+    max_cost_usd: Mapped[float] = mapped_column(Float, nullable=False)  # 이 호출의 예산 상한 — 예상 비용이 넘으면 호출 전에 차단
+    note: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    approved_by_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    used_analysis_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    revoked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+
+class AIEvaluation(Base, UUIDPKMixin, TimestampMixin):
+    """연구원의 AI 분석 품질 평가(7개 항목). 모의 공급자 결과와 실제 AI 결과는 같은 정확도 집계에 합산하지 않는다(is_mock로 구분)."""
+
+    __tablename__ = "ai_evaluations"
+
+    analysis_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("ai_analyses.id"), nullable=False, index=True)
+    evaluator_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    is_mock: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    scores_json: Mapped[str] = mapped_column(Text, nullable=False)  # {"c1_summary": "ok|partial|bad|na", ...}
+    semantic_mismatch_cases: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    insufficient_evidence_cases: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    wrong_source_cases: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    auto_stats_json: Mapped[str | None] = mapped_column(Text, nullable=True)  # 평가 시점의 자동 검증 통계 스냅샷
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)

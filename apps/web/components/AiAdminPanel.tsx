@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { aiDiagnostics, aiPricing, aiSetPricing, aiStatus, aiUsage, type AiDiagnostics, type AiPrice, type AiStatus, type AiUsage } from "@/lib/aiApi";
+import { aiApprovals, aiDiagnostics, aiEvaluationSummary, aiPricing, aiRevokeApproval, aiSetPricing, aiStatus, aiUsage, EVAL_CRITERIA, type AiApproval, type AiDiagnostics, type AiPrice, type AiStatus, type AiUsage, type EvalGroup } from "@/lib/aiApi";
 
 const inp: React.CSSProperties = { padding: 7, borderRadius: 8, border: "1px solid var(--border)", fontSize: 13 };
 const CONN_LABEL: Record<string, string> = { not_configured: "연결 미검증(설정 없음)", unverified: "연결 미검증", mock: "모의 공급자(실제 연결 아님)" };
@@ -12,6 +12,8 @@ export default function AiAdminPanel({ isAdmin }: { isAdmin: boolean }) {
   const [usage, setUsage] = useState<AiUsage | null>(null);
   const [prices, setPrices] = useState<AiPrice[]>([]);
   const [diag, setDiag] = useState<AiDiagnostics | null>(null);
+  const [approvals, setApprovals] = useState<AiApproval[]>([]);
+  const [evals, setEvals] = useState<{ real: EvalGroup; mock: EvalGroup; note: string } | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [form, setForm] = useState({ provider: "anthropic", model: "", input: "", output: "", date: new Date().toISOString().slice(0, 10), note: "" });
 
@@ -19,7 +21,9 @@ export default function AiAdminPanel({ isAdmin }: { isAdmin: boolean }) {
     aiStatus().then(setStatus).catch(() => setStatus(null));
     aiUsage("me", 1).then(setUsage).catch(() => setUsage(null));
     aiPricing().then(setPrices).catch(() => setPrices([]));
-  }, []);
+    aiEvaluationSummary().then(setEvals).catch(() => setEvals(null));
+    if (isAdmin) aiApprovals().then(setApprovals).catch(() => setApprovals([]));
+  }, [isAdmin]);
   useEffect(() => { load(); }, [load]);
 
   async function runDiag() {
@@ -77,6 +81,26 @@ export default function AiAdminPanel({ isAdmin }: { isAdmin: boolean }) {
         </form>
       )}
       {msg && <p role="status" style={{ fontSize: 12.5 }}>{msg}</p>}
+      {status && <p style={{ fontSize: 12, margin: "8px 0" }} data-testid="ai-gate-status">첫 실호출 안전장치: {status.require_approval ? "관리자 1건 승인 필수(승인 1회용·자동 재시도 금지)" : "승인 불필요(모의 공급자이거나 AI_REQUIRE_APPROVAL=0)"}{status.max_cost_per_request_usd != null ? ` · 요청당 상한 $${status.max_cost_per_request_usd}` : ""}</p>}
+      {isAdmin && approvals.length > 0 && (
+        <details style={{ fontSize: 12.5, marginTop: 6 }}>
+          <summary>호출 승인 내역 {approvals.length}건</summary>
+          {approvals.map((a) => (
+            <div key={a.id}>{a.kind} · {a.model} · 상한 ${a.max_cost_usd} · {a.used_at ? "사용됨" : a.revoked ? "취소됨" : "미사용"}
+              {!a.used_at && !a.revoked && <button className="tbtn" style={{ marginLeft: 6 }} onClick={async () => { await aiRevokeApproval(a.id); load(); }}>승인 취소</button>}</div>
+          ))}
+        </details>
+      )}
+      {evals && (
+        <div style={{ marginTop: 10, fontSize: 12.5 }} data-testid="ai-eval-summary">
+          <b>품질 평가 집계</b> — <span style={{ color: "var(--ink-muted)" }}>{evals.note}</span>
+          {(["real", "mock"] as const).map((g) => (
+            <div key={g}>{g === "real" ? "실제 AI" : "모의 응답"}: 평가 {evals[g].evaluations}건 · 사실 문장 {evals[g].facts}건 중 근거 없음/불일치 {evals[g].facts_without_valid_evidence}건
+              {evals[g].ratio_without_valid_evidence != null ? ` (${Math.round((evals[g].ratio_without_valid_evidence ?? 0) * 100)}%)` : ""} · 의미 불일치 {evals[g].semantic_mismatch_cases} · 근거 부족 {evals[g].insufficient_evidence_cases} · 잘못된 출처 {evals[g].wrong_source_cases}
+              {evals[g].evaluations > 0 && <span style={{ color: "var(--ink-muted)" }}> · 부적절 {Object.entries(evals[g].criteria).filter(([, v]) => v.bad > 0).map(([k, v]) => `${(EVAL_CRITERIA[k] ?? k).slice(0, 2)}×${v.bad}`).join(" ") || "없음"}</span>}</div>
+          ))}
+        </div>
+      )}
     </section>
   );
 }

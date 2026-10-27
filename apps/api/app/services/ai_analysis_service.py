@@ -27,9 +27,9 @@ from app.models.source import Source
 from app.models.source_document import SourceDocument
 from app.models.user import User
 from app.services import ai_evidence
-from app.models.ai_analysis import AIPriceSetting
+from app.models.ai_analysis import AICallApproval, AIEvaluation, AIPriceSetting
 from app.services.ai_service import (
-    AIServiceError, configuration_gaps, cost_usd, estimate_tokens, extract_json_object, get_ai_provider,
+    AIBadResponseError, AIServiceError, configuration_gaps, cost_usd, estimate_tokens, extract_json_object, get_ai_provider, redact_secrets,
 )
 
 PROMPT_VERSION = "p36-v1"
@@ -119,6 +119,7 @@ def ai_status() -> dict:
         "daily_limit_per_user": daily_limit(),
         "max_documents": MAX_DOCS,
         "max_chars_per_document": MAX_CHARS_PER_DOC,
+        "require_approval": bool(provider and approval_required(provider.name)), "max_cost_per_request_usd": per_request_cap(),
         "message": None if provider else "AI 설정 필요 — " + ("; ".join(gaps) or "서버 환경변수가 설정되지 않아") + ". 규칙 기반 분석은 계속 사용할 수 있습니다.",
     }
 
@@ -249,15 +250,154 @@ def estimate(db: Session, kind: str, target_id: uuid.UUID, document_ids: list[uu
     blockers = []
     if not inputs:
         blockers.append("원문 전문이 확보된 문서가 없어 분석을 보류합니다(근거 부족).")
+    need_approval = bool(provider and approval_required(provider.name))
+    appr = find_approval(db, kind, target_id, provider.model if provider else None) if need_approval else None
+    cap = per_request_cap()
+    if cap is not None and cost is not None and cost > cap:
+        blockers.append(f"예상 비용 ${cost}가 요청당 상한 ${cap}를 넘어 호출 전에 차단됩니다")
+    if need_approval and cost is None:
+        blockers.append("단가가 설정되지 않아 예산 상한을 검사할 수 없습니다 — 단가표를 먼저 설정하세요")
     return {
         "kind": kind, "target_type": target_type, "target_id": str(target_id), "documents": [
             {k: i[k] for k in ("id", "title", "org", "country", "published", "url", "chars", "truncated", "full_chars")} for i in inputs
         ], "skipped": skipped, "input_chars": chars, "est_input_tokens": in_tok, "est_output_tokens": EST_OUTPUT_TOKENS,
         "est_cost_usd": cost, "pricing_version": price_version, "price_known": price is not None, "provider": pname, "model": pmodel, "configured": provider is not None,
-        "is_mock": bool(provider and provider.name == "mock"), "blockers": blockers, "existing_candidate_ids": extra.get("existing_candidate_ids", []),
+        "is_mock": bool(provider and provider.name == "mock"), "blockers": blockers,
+        "approval_required": need_approval, "approval": approval_out(appr) if appr else None, "max_cost_per_request_usd": cap, "existing_candidate_ids": extra.get("existing_candidate_ids", []),
         "price_note": ("비용은 토큰 수를 거칠게 추정한 값이며 실제 제공자 청구액과 다를 수 있습니다. 단가 기준: " + (price_version or "단가 미설정 — 관리자가 '가격표'에서 설정해야 비용을 계산할 수 있습니다")
                        + (" · 모의 응답은 실제 비용을 검증하지 않습니다" if pname == "mock" else "")),
     }
+
+
+# ---------------------------------------------------------------- 응답 스키마·검증 ----
+RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "sections": {"type": "array", "items": {"type": "object", "properties": {
+            "key": {"type": "string"},
+            "items": {"type": "array", "items": {"type": "object", "properties": {
+                "text": {"type": "string"}, "type": {"type": "string", "enum": ["fact", "interpretation", "gap"]},
+                "evidence": {"type": "array", "items": {"type": "object", "properties": {"doc": {"type": "string"}, "quote": {"type": "string"}},
+                                                          "required": ["doc", "quote"], "additionalProperties": False}},
+            }, "required": ["text", "type", "evidence"], "additionalProperties": False}},
+        }, "required": ["key", "items"], "additionalProperties": False}},
+        "insufficient": {"type": "boolean"},
+        "notes": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["sections", "insufficient", "notes"], "additionalProperties": False,
+}
+
+
+def validate_payload(payload: object) -> list[str]:
+    """모델 JSON이 기대한 구조인지 서버가 직접 확인한다. 구조 자체가 틀리면 AIBadResponseError, 일부 항목 문제는 경고 목록으로 돌려준다."""
+    if not isinstance(payload, dict) or not isinstance(payload.get("sections"), list):
+        raise AIBadResponseError("응답 JSON에 sections 배열이 없습니다(스키마 불일치)")
+    issues: list[str] = []
+    for si, sec in enumerate(payload["sections"]):
+        if not isinstance(sec, dict) or not isinstance(sec.get("key"), str) or not isinstance(sec.get("items", []), list):
+            raise AIBadResponseError(f"응답 sections[{si}] 형식이 올바르지 않습니다(스키마 불일치)")
+        for ii, it in enumerate(sec.get("items", [])):
+            if not isinstance(it, dict) or not isinstance(it.get("text"), str):
+                issues.append(f"sections[{si}].items[{ii}]에 text가 없어 제외했습니다")
+            elif it.get("type") not in ("fact", "interpretation", "gap"):
+                issues.append(f"sections[{si}].items[{ii}]의 type이 올바르지 않아 'fact'로 간주해 근거를 검증했습니다")
+    known = {s["key"] for specs in SECTION_SPECS.values() for s in specs}
+    unknown = [s.get("key") for s in payload["sections"] if s.get("key") not in known]
+    if unknown:
+        issues.append(f"알 수 없는 섹션 키는 무시했습니다: {', '.join(str(u) for u in unknown[:5])}")
+    return issues
+
+
+# ---------------------------------------------------------------- 첫 실호출 안전장치(관리자 1건 승인) ----
+def approval_required(provider_name: str) -> bool:
+    """모의 공급자가 아닌 실제 공급자 호출은 기본적으로 관리자의 호출 1건 승인이 있어야 한다(AI_REQUIRE_APPROVAL=0으로만 끌 수 있음)."""
+    return provider_name != "mock" and os.environ.get("AI_REQUIRE_APPROVAL", "1").strip() != "0"
+
+
+def per_request_cap() -> float | None:
+    try:
+        v = os.environ.get("AI_MAX_COST_PER_REQUEST_USD", "").strip()
+        return float(v) if v else None
+    except ValueError:
+        return None
+
+
+def find_approval(db: Session, kind: str, target_id: uuid.UUID, model: str | None) -> AICallApproval | None:
+    now = _utcnow()
+    for a in db.scalars(select(AICallApproval).where(AICallApproval.kind == kind, AICallApproval.target_id == target_id, AICallApproval.model == (model or ""),
+                                                      AICallApproval.used_at.is_(None), AICallApproval.revoked.is_(False)).order_by(AICallApproval.created_at.desc())).all():
+        if _aware(a.expires_at) > now:
+            return a
+    return None
+
+
+def approval_out(a: AICallApproval) -> dict:
+    return {"id": str(a.id), "kind": a.kind, "target_id": str(a.target_id), "model": a.model, "max_cost_usd": a.max_cost_usd, "note": a.note,
+            "expires_at": _aware(a.expires_at).isoformat(), "used_at": _aware(a.used_at).isoformat() if a.used_at else None,
+            "used_analysis_id": str(a.used_analysis_id) if a.used_analysis_id else None, "revoked": a.revoked}
+
+
+def create_approval(db: Session, admin: User, kind: str, target_id: uuid.UUID, max_cost_usd: float, minutes: int, note: str | None) -> AICallApproval:
+    provider = get_ai_provider()
+    if provider is None or provider.name == "mock":
+        raise AIRequestError(409, "실제 AI 공급자가 설정되어 있지 않아 호출 승인을 만들 수 없습니다(모의 공급자는 승인이 필요하지 않음)")
+    est = estimate(db, kind, target_id, None)
+    if est["blockers"]:
+        raise AIRequestError(422, "; ".join(est["blockers"]))
+    if est["est_cost_usd"] is None:
+        raise AIRequestError(409, "단가가 설정되지 않아 예산 상한을 검증할 수 없습니다 — 먼저 설정 화면의 단가표를 확인하세요", code="price_unknown")
+    if max_cost_usd < est["est_cost_usd"]:
+        raise AIRequestError(422, f"예산 상한 ${max_cost_usd}가 이 호출의 예상 비용 ${est['est_cost_usd']}보다 작아 승인해도 호출 전에 차단됩니다")
+    a = AICallApproval(kind=kind, target_id=target_id, model=provider.model, max_cost_usd=max_cost_usd, note=note, approved_by_user_id=admin.id,
+                       expires_at=_utcnow() + timedelta(minutes=minutes))
+    db.add(a)
+    db.flush()
+    return a
+
+
+# ---------------------------------------------------------------- 품질 평가 ----
+EVAL_CRITERIA = {
+    "c1_summary": "원문의 핵심 내용이 정확하게 요약되었는가", "c2_values": "날짜·수치·단위·적용대상이 정확한가",
+    "c3_followup": "기존 정책과 후속 변경사항을 구분하는가", "c4_evidence": "모든 핵심 사실에 실제 원문 근거가 있는가",
+    "c5_no_invention": "원문에 없는 논쟁이나 국가별 입장을 만들지 않는가", "c6_domestic": "국내 산업 영향과 추가 검토 필요 사항을 구분하는가",
+    "c7_usable": "작성된 문장을 실제 보고서 원고에 활용할 수 있는가",
+}
+
+
+def save_evaluation(db: Session, analysis: AIAnalysis, user: User, scores: dict[str, str], counts: dict[str, int], notes: str | None) -> AIEvaluation:
+    if analysis.status != "completed":
+        raise AIRequestError(409, "분석이 완료된 결과만 평가할 수 있습니다")
+    bad = [k for k in scores if k not in EVAL_CRITERIA] + [k for k, v in scores.items() if v not in ("ok", "partial", "bad", "na")]
+    if bad or set(scores) != set(EVAL_CRITERIA):
+        raise AIRequestError(422, "7개 평가 항목(c1~c7) 모두에 ok·partial·bad·na 중 하나를 선택해야 합니다")
+    ev = AIEvaluation(analysis_id=analysis.id, evaluator_user_id=user.id, is_mock=analysis.is_mock, scores_json=json.dumps(scores, ensure_ascii=False),
+                      semantic_mismatch_cases=max(0, counts.get("semantic_mismatch_cases", 0)), insufficient_evidence_cases=max(0, counts.get("insufficient_evidence_cases", 0)),
+                      wrong_source_cases=max(0, counts.get("wrong_source_cases", 0)), auto_stats_json=json.dumps(claim_stats(db, analysis.id), ensure_ascii=False),
+                      notes=(notes or "").strip() or None)
+    db.add(ev)
+    db.flush()
+    return ev
+
+
+def evaluation_summary(db: Session) -> dict:
+    """모의 공급자 결과와 실제 AI 결과를 따로 집계한다 — 합산하지 않는다."""
+    out: dict = {}
+    for label, is_mock in (("real", False), ("mock", True)):
+        rows = db.scalars(select(AIEvaluation).where(AIEvaluation.is_mock.is_(is_mock))).all()
+        dist = {k: {"ok": 0, "partial": 0, "bad": 0, "na": 0} for k in EVAL_CRITERIA}
+        facts = invalid = 0
+        for r in rows:
+            for k, v in json.loads(r.scores_json).items():
+                dist[k][v] += 1
+            s = json.loads(r.auto_stats_json or "{}")
+            facts += s.get("facts", 0)
+            invalid += s.get("facts_without_valid_evidence", 0)
+        out[label] = {"evaluations": len(rows), "criteria": dist, "facts": facts, "facts_without_valid_evidence": invalid,
+                      "ratio_without_valid_evidence": round(invalid / facts, 3) if facts else None,
+                      "semantic_mismatch_cases": sum(r.semantic_mismatch_cases for r in rows), "insufficient_evidence_cases": sum(r.insufficient_evidence_cases for r in rows),
+                      "wrong_source_cases": sum(r.wrong_source_cases for r in rows)}
+    out["note"] = "모의 공급자 결과와 실제 AI 결과는 합산하지 않습니다. 실제 AI 평가가 0건이면 정확도는 측정되지 않은 것입니다."
+    return out
 
 
 # ---------------------------------------------------------------- 프롬프트 ----
@@ -339,6 +479,20 @@ def run_analysis(
 
     system, user_prompt = build_prompt(kind, inputs, extra)
     est_in = estimate_tokens(len(system) + len(user_prompt))
+    price0, _, _ = get_price(db, provider.name, provider.model)
+    est_cost0 = cost_usd(price0, est_in, EST_OUTPUT_TOKENS)
+    approval = None
+    if approval_required(provider.name):  # 실제 호출 전 안전장치: 관리자의 1건 승인 + 예산 상한 + 단가 확인
+        approval = find_approval(db, kind, target_id, provider.model)
+        if approval is None:
+            raise AIRequestError(403, "실제 AI 호출은 관리자의 호출 1건 승인(대상·모델·예산 상한 지정)이 필요합니다 — 승인은 한 번 쓰면 소멸하며 자동 재시도·다음 문서 자동 분석은 하지 않습니다", code="approval_required")
+        if est_cost0 is None:
+            raise AIRequestError(409, "단가가 설정되지 않아 예산 상한을 검사할 수 없습니다 — 단가표를 확인하세요", code="price_unknown")
+        if est_cost0 > approval.max_cost_usd:
+            raise AIRequestError(409, f"예상 비용 ${est_cost0}가 승인된 예산 상한 ${approval.max_cost_usd}를 넘어 호출 전에 차단했습니다", code="budget_exceeded")
+    cap = per_request_cap()
+    if cap is not None and provider.name != "mock" and (est_cost0 is None or est_cost0 > cap):
+        raise AIRequestError(409, f"예상 비용이 요청당 상한 ${cap}를 넘거나 계산할 수 없어 호출 전에 차단했습니다", code="budget_exceeded")
     notes = list(skipped)
     for i in inputs:
         hits = ai_evidence.scan_injection(i["text"])
@@ -357,14 +511,23 @@ def run_analysis(
     db.add(a)
     db.commit()  # 호출 도중 취소·중복 요청이 보이도록 먼저 커밋
     a.provider_request_sent = True  # 이 시점부터는 제공자에게 요청이 전달된 것으로 본다(취소해도 비용이 발생했을 수 있음)
+    if approval is not None:  # 승인은 호출 직전에 소멸시킨다 — 실패해도 같은 승인으로 다시 호출할 수 없다(자동 재시도 금지)
+        approval.used_at, approval.used_analysis_id = _utcnow(), a.id
     db.commit()
     try:
-        result = provider.complete_json(system, user_prompt, max_tokens=MAX_OUTPUT_TOKENS)
+        if getattr(provider, "supports_schema", False):
+            result = provider.complete_json(system, user_prompt, max_tokens=MAX_OUTPUT_TOKENS, json_schema=RESPONSE_SCHEMA)
+        else:
+            result = provider.complete_json(system, user_prompt, max_tokens=MAX_OUTPUT_TOKENS)
+        raw = result.raw_text or result.text
         payload = extract_json_object(result.text)
+        schema_issues = validate_payload(payload)
     except AIServiceError as exc:
         db.refresh(a)
         a.status, a.error_code, a.finished_at = "failed", exc.code, _utcnow()
-        a.error_message = f"{exc.user_message} | {str(exc)[:600]}"
+        a.error_message = redact_secrets(f"{exc.user_message} | {str(exc)[:600]}")
+        if exc.raw_text:
+            a.raw_response_text = redact_secrets(exc.raw_text)[:200_000]
         if exc.usage:  # 응답은 받았지만 쓸 수 없는 경우(잘림 등)에도 사용한 토큰은 기록한다
             a.input_tokens, a.output_tokens = exc.usage
             c = cost_usd(price, *exc.usage)
@@ -387,6 +550,8 @@ def run_analysis(
     if fingerprint(fresh_inputs) != a.source_fingerprint:
         a.source_changed_during_run = True
         notes.append("분석 도중 원문이 변경되었습니다 — 이 결과는 변경 전 원문 기준이므로 '다시 분석'이 필요합니다")
+    a.raw_response_text = redact_secrets(raw)[:200_000]
+    notes.extend(schema_issues)
     sections = store_claims(db, a, kind, payload, inputs, notes)
     a.result_json = json.dumps({"sections": sections, "insufficient": bool(payload.get("insufficient")), "model_notes": [str(n)[:300] for n in (payload.get("notes") or [])][:10]}, ensure_ascii=False)
     a.notes_json = json.dumps(notes, ensure_ascii=False)

@@ -14,6 +14,7 @@
 
 import json
 import os
+import re
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -26,15 +27,29 @@ REQUEST_TIMEOUT_SECONDS = 120.0
 ANTHROPIC_VERSION = "2023-06-01"
 
 
+_KEY_PATTERN = re.compile(r"sk-[A-Za-z0-9_\-]{16,}")
+
+
+def redact_secrets(text: str) -> str:
+    """오류 메시지·로그·저장 문자열에서 API 키 값을 지운다(설정된 키 값과 'sk-...' 형태 모두)."""
+    out = text or ""
+    for env in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY"):
+        v = os.environ.get(env, "").strip()
+        if len(v) >= 8:
+            out = out.replace(v, "[REDACTED]")
+    return _KEY_PATTERN.sub("[REDACTED]", out)
+
+
 class AIServiceError(Exception):
     """호출 실패. code는 화면·이력에 남기는 분류값이다."""
 
     code = "provider_error"
     user_message = "AI 호출에 실패했습니다"
     usage: tuple[int, int] | None = None  # (입력, 출력) 토큰 — 응답은 받았지만 쓸 수 없을 때(잘림 등) 비용 기록용
+    raw_text: str | None = None  # 쓸 수 없던 응답 본문(사후 대조용) — 키는 포함되지 않는다
 
     def __init__(self, message: str | None = None, *, http_status: int | None = None):
-        super().__init__(message or self.user_message)
+        super().__init__(redact_secrets(message or self.user_message))
         self.http_status = http_status
 
 
@@ -78,6 +93,7 @@ class AIResult:
     input_tokens: int = 0  # 공급자가 돌려준 실제 사용량(모의·미보고 시 0)
     output_tokens: int = 0
     stop_reason: str | None = None
+    raw_text: str | None = None
 
 
 class AIProvider(Protocol):
@@ -127,6 +143,12 @@ def _http(method: str, url: str, provider: str, **kwargs) -> httpx.Response:
 
 class AnthropicProvider:
     name = "anthropic"
+    # 구조화 출력(output_config.format json_schema)은 공식 문서상 claude-sonnet-5-5 등에서 지원하지만 이 환경에서 실제 호출로 검증하지 못했으므로
+    # 기본은 끄고(프롬프트 기반 JSON + 서버 스키마 검증), 첫 실호출 검증 후 AI_STRUCTURED_OUTPUT=1로 켠다.
+
+    @property
+    def supports_schema(self) -> bool:
+        return os.environ.get("AI_STRUCTURED_OUTPUT", "").strip() == "1"
 
     def __init__(self, api_key: str, model: str):
         self.api_key = api_key
@@ -135,10 +157,12 @@ class AnthropicProvider:
     def _headers(self) -> dict:
         return {"x-api-key": self.api_key, "anthropic-version": ANTHROPIC_VERSION, "content-type": "application/json"}
 
-    def complete_json(self, system_prompt: str, user_prompt: str, max_tokens: int = 2000) -> AIResult:
-        resp = _http("POST", "https://api.anthropic.com/v1/messages", self.name, headers=self._headers(), json={
-            "model": self.model, "max_tokens": max_tokens, "system": system_prompt, "messages": [{"role": "user", "content": user_prompt}],
-        })
+    def complete_json(self, system_prompt: str, user_prompt: str, max_tokens: int = 2000, json_schema: dict | None = None) -> AIResult:
+        # thinking 필드는 보내지 않는다 — Sonnet 5.5는 기본이 적응형 사고이며 "disabled"는 400 오류(공식 문서 확인). 사고 토큰은 출력 토큰으로 과금되고 max_tokens에 포함된다.
+        body: dict = {"model": self.model, "max_tokens": max_tokens, "system": system_prompt, "messages": [{"role": "user", "content": user_prompt}]}
+        if json_schema is not None and self.supports_schema:
+            body["output_config"] = {"format": {"type": "json_schema", "schema": json_schema}}
+        resp = _http("POST", "https://api.anthropic.com/v1/messages", self.name, headers=self._headers(), json=body)
         try:
             data = resp.json()
             text = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type", "text") == "text")
@@ -149,13 +173,13 @@ class AnthropicProvider:
         used = (int(usage.get("input_tokens", 0) or 0), int(usage.get("output_tokens", 0) or 0))
         if stop == "max_tokens":  # 잘린 JSON은 파싱하지 않고 실패로 기록한다(토큰 사용량은 남긴다)
             err = AITruncatedError(f"Anthropic stop_reason=max_tokens (출력 {used[1]}토큰에서 잘림)")
-            err.usage = used
+            err.usage, err.raw_text = used, text
             raise err
         if stop == "refusal":
             err = AIBadResponseError("모델이 요청을 거절했습니다(stop_reason=refusal)")
-            err.usage = used
+            err.usage, err.raw_text = used, text
             raise err
-        return AIResult(provider=self.name, model=self.model, text=text, stop_reason=stop, input_tokens=used[0], output_tokens=used[1])
+        return AIResult(provider=self.name, model=self.model, text=text, stop_reason=stop, input_tokens=used[0], output_tokens=used[1], raw_text=text)
 
     def list_models(self) -> list[str]:
         """키로 실제 사용 가능한 모델 ID 목록(진단용). 토큰을 쓰지 않는 조회 호출이다."""
@@ -189,9 +213,9 @@ class OpenAIProvider:
         used = (int(usage.get("prompt_tokens", 0) or 0), int(usage.get("completion_tokens", 0) or 0))
         if stop == "length":
             err = AITruncatedError("OpenAI finish_reason=length (출력 한도에서 잘림)")
-            err.usage = used
+            err.usage, err.raw_text = used, text
             raise err
-        return AIResult(provider=self.name, model=self.model, text=text, stop_reason=stop, input_tokens=used[0], output_tokens=used[1])
+        return AIResult(provider=self.name, model=self.model, text=text, stop_reason=stop, input_tokens=used[0], output_tokens=used[1], raw_text=text)
 
     def list_models(self) -> list[str]:
         data = _http("GET", "https://api.openai.com/v1/models", self.name, headers=self._headers()).json()
