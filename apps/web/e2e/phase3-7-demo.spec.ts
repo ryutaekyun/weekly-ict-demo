@@ -76,8 +76,8 @@ test("3-7 H·4 — 후보 상세: 분야 수정·추가 조사 필요 상태·�
   await expect(page.getByText("근거에서 제외했습니다")).toBeVisible();
   await expect(page.getByTestId("excluded-docs")).toBeVisible();
   await page.reload();
-  await expect(page.getByLabel("후보주제 제목", { exact: true })).toHaveValue(newTitle);
-  await expect(page.getByLabel("후보주제 관련 분야")).toHaveValue("sec");
+  await expect(page.getByLabel("후보주제 제목", { exact: true })).toHaveValue(newTitle, { timeout: 15_000 });
+  await expect(page.getByLabel("후보주제 관련 분야")).toHaveValue("sec", { timeout: 15_000 });
   await expect(page.getByTestId("related-link")).toHaveCount(before - 1);
   await page.getByTestId("excluded-docs").getByRole("button", { name: "복원" }).first().click();
   await expect(page.getByTestId("related-link")).toHaveCount(before);

@@ -43,7 +43,7 @@ export default function SourceBench({ docs, canEdit, onInsert }: { docs: Related
 
   return (
     <div data-testid="source-bench" style={{ fontSize: 12.5 }}>
-      <h2 style={{ fontSize: 13, margin: "12px 0 8px" }}>관련 원문·근거 작업대</h2>
+      <h2 style={{ fontSize: 13, margin: "12px 0 8px" }}>원문·근거 작업대</h2>
       {docs.length === 0 && <p style={{ color: "var(--ink-muted)" }}>연결된 근거 원문이 없습니다.</p>}
       {msg && <p role="status" style={{ color: "var(--ok)" }}>{msg}</p>}
       {docs.map((d) => (
