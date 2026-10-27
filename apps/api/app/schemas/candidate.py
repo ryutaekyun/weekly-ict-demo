@@ -19,6 +19,7 @@ class CandidateCreate(BaseModel):
 
 
 class CandidateUpdate(BaseModel):
+    field_code: FieldCode | None = None
     title: str | None = None
     summary: str | None = None
     announced_date: date | None = None
@@ -87,4 +88,7 @@ class CandidateDetailOut(CandidateOut):
     recommendation_score: CandidateRecommendationScoreOut | None = None
     assignee_name: str | None = None
     related_documents: list[dict] = []  # 근거 원문(핵심 이슈의 수집 문서) — 원문 링크 상태 포함
+    excluded_documents: list[dict] = []  # 연구원이 근거에서 제외한 원문(복원 가능)
+    issue_summary: dict | None = None  # 핵심 이슈·발표 시점·후속 동향·논쟁 가능성(규칙 기반 분석 결과)
+    domestic_relevance_note: str | None = None
     history: list[dict] = []  # 수정 이력(감사 로그)

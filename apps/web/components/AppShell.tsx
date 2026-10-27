@@ -8,6 +8,7 @@ import { ROLE_LABELS } from "@/lib/labels";
 
 const NAV_ITEMS: { href: string; label: string; disabled?: boolean }[] = [
   { href: "/dashboard", label: "통합 대시보드" },
+  { href: "/guide", label: "시연 가이드" },
   { href: "/documents", label: "ICT 정보 수집" },
   { href: "/issues", label: "핵심 이슈 분석" },
   { href: "/candidates", label: "후보주제 선정·검토" },

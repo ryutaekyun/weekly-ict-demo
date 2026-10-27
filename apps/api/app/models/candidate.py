@@ -28,6 +28,9 @@ class Candidate(Base, UUIDPKMixin, TimestampMixin, UpdatedAtMixin):
         Enum(CandidateStatus, native_enum=False), default=CandidateStatus.REC, nullable=False
     )
     created_by_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    # 연구원이 근거 원문을 직접 추가·제외한 기록(이슈에 묶인 문서 외 추가 / 이슈 문서 중 제외) — JSON 문서 ID 목록
+    evidence_extra_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    evidence_excluded_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     assignee_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)  # 검토 담당 연구원
 
     reviews: Mapped[list["CandidateReview"]] = relationship(

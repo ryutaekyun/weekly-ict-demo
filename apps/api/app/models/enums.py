@@ -30,6 +30,7 @@ class CandidateStatus(str, enum.Enum):
     HOLD = "hold"  # 보류
     FINAL = "final"  # 확정
     REJECTED = "rejected"  # 반려
+    RESEARCH = "research"  # 추가 조사 필요
 
 
 class SourceType(str, enum.Enum):

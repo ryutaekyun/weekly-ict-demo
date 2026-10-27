@@ -6,7 +6,7 @@ export type AiStatus = {
   configured: boolean; provider: string | null; model: string | null; is_mock: boolean;
   daily_limit_per_user: number; message: string | null;
   connection: "not_configured" | "unverified" | "mock"; connection_note: string; config_gaps: string[];
-  require_approval: boolean; max_cost_per_request_usd: number | null;
+  require_approval: boolean; max_cost_per_request_usd: number | null; paid_locked: boolean;
 };
 
 export type AiEstimate = {

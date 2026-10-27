@@ -18,16 +18,17 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models.ai_analysis import AIAnalysis, AIClaim
 from app.models.candidate import Candidate
 from app.models.candidate_scoring import CandidateRecommendationScore
 from app.models.document_classification import DocumentClassification
 from app.models.document_full_text import DocumentFullText
 from app.models.enums import ClassificationRelevance, ExtractionStatus
+from app.models.issue_analysis import IssueAnalysis
 from app.models.issue_cluster import IssueCluster
+from app.models.issue_dispute_point import IssueDisputePoint
 from app.models.issue_cluster_document import IssueClusterDocument
 from app.models.issue_timeline_event import IssueTimelineEvent
 from app.models.source import Source
@@ -42,7 +43,9 @@ DOC_TYPE_LABELS = {
     "policy": "정부 정책", "law": "법령·규제", "paper": "학술논문", "report": "연구보고서", "standard": "기술표준", "statistics": "통계·분석자료",
     "press_release": "보도자료", "tech_announcement": "기업 기술발표", "news": "언론 보도", "other": "기타",
 }
-CANDIDATE_STATUS_LABELS = {"rec": "추천", "review": "검토중", "hold": "보류", "final": "내부 확정", "rejected": "반려"}
+CANDIDATE_STATUS_LABELS = {"rec": "추천", "review": "검토중", "hold": "보류", "final": "내부 확정", "rejected": "반려", "research": "추가 조사 필요"}
+DISPUTE_LABELS = {"not_analyzed": "분석 전", "no_disputes_confirmed": "확인된 주요 의견 대립 없음", "disputes_found": "의견 대립 확인됨"}
+SCORE_KEYS = {"policy_impact_score": "정책·산업 영향", "timeliness_score": "시의성", "domestic_relevance_score": "국내 관련성", "novelty_score": "신규성", "analysis_depth_score": "분석 가능 깊이"}
 SAFE_URL = re.compile(r"^https?://", re.IGNORECASE)
 EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 
@@ -67,7 +70,7 @@ def assert_no_personal_data(snapshot: dict) -> None:
     found = EMAIL.findall(text)
     if found:
         raise PrivacyError(f"스냅샷에 이메일 주소가 남아 있습니다: {found[:3]}")
-TEST_MARKERS = ("E2E", "e2e-", "[시범]", "[합성")  # 테스트·시범 데이터는 공개 시연 목록에서 제외한다
+TEST_MARKERS = ("E2E", "e2e-", "[시범]", "[합성", "3-6", "3-7", "Synthetic", "CI Fixture")  # 테스트·시범 데이터는 공개 시연 목록에서 제외한다
 
 
 def _day(dt) -> str | None:
@@ -107,7 +110,11 @@ def build_snapshot(db: Session) -> dict:
         timeline = [{"type": t.event_type.value if hasattr(t.event_type, "value") else str(t.event_type), "date": _day(t.event_date), "document_id": str(t.document_id)}
                     for t in db.scalars(select(IssueTimelineEvent).where(IssueTimelineEvent.issue_cluster_id == cluster.id).order_by(IssueTimelineEvent.event_date)).all()
                     if t.document_id in included_ids]
+        analysis = db.scalar(select(IssueAnalysis).where(IssueAnalysis.issue_cluster_id == cluster.id))
+        dcount = db.scalar(select(func.count()).select_from(IssueDisputePoint).where(IssueDisputePoint.issue_cluster_id == cluster.id)) or 0
+        dstatus = analysis.dispute_status.value if analysis else "not_analyzed"
         issues_out.append({
+            "dispute_label": DISPUTE_LABELS.get(dstatus, dstatus), "dispute_count": dcount,
             "id": str(cluster.id), "title": cluster.title, "field": cluster.field_code.value, "last_activity": _day(cluster.last_activity_at),
             "documents": [{"id": str(m.document_id), "membership": m.membership_type.value} for m in mem], "timeline": timeline,
         })
@@ -121,7 +128,18 @@ def build_snapshot(db: Session) -> dict:
         if any(m in c.title for m in TEST_MARKERS):
             continue
         score = db.scalar(select(CandidateRecommendationScore).where(CandidateRecommendationScore.candidate_id == c.id))
-        cands_out.append({
+        try:
+            reasoning = json.loads(score.reasoning_json) if score and score.reasoning_json else {}
+        except ValueError:
+            reasoning = {}
+        breakdown = []
+        if score:
+            for key, label in SCORE_KEYS.items():
+                v = getattr(score, key)
+                note = reasoning.get(key.replace("_score", "")) if isinstance(reasoning, dict) else None
+                breakdown.append({"criterion": label, "score": round(v, 1) if v is not None else None, "note": str(note)[:300] if isinstance(note, str) else None})
+        cluster = next((i for i in issues_out if i["id"] == str(c.issue_cluster_id)), None)
+        cands_out.append({"breakdown": breakdown, "dispute": cluster["dispute_label"] if cluster else None, "dispute_count": cluster["dispute_count"] if cluster else 0,
             "id": str(c.id), "title": c.title, "field": c.field_code.value, "announced": c.announced_date.isoformat() if c.announced_date else None,
             "org": c.source_org, "internal_status": CANDIDATE_STATUS_LABELS.get(c.status.value, c.status.value),
             "score": round(score.total_score, 1) if score and score.total_score is not None else None,
@@ -130,8 +148,20 @@ def build_snapshot(db: Session) -> dict:
             "document_ids": [m["id"] for i in issues_out if i["id"] == str(c.issue_cluster_id) for m in i["documents"]],
         })
 
-    ai_out = _approved_ai_results(db, included_ids, issue_set)
     counts = {code: sum(1 for d in docs_out if d["field"] == code) for code in FIELD_LABELS}
+
+    def tally(key):
+        out: dict = {}
+        for d in docs_out:
+            v = d.get(key) or "미상"
+            out[v] = out.get(v, 0) + 1
+        return sorted(({"name": k, "count": n} for k, n in out.items()), key=lambda x: -x["count"])
+
+    dashboard = {
+        "by_org": tally("org")[:12], "by_country": tally("country"), "by_type": [{"name": DOC_TYPE_LABELS.get(x["name"], x["name"]), "count": x["count"]} for x in tally("type")],
+        "with_original_text": sum(1 for d in docs_out if d["original_secured"]), "multi_document_issues": sum(1 for i in issues_out if len(i["documents"]) >= 2),
+        "issues_needing_review": None, "classification_method": "키워드·규칙 기반 자동 분류(연구원 검토 필요) — 생성형 AI 분류가 아님",
+    }
     snapshot = {
         "meta": {
             "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -143,36 +173,11 @@ def build_snapshot(db: Session) -> dict:
         },
         "fields": [{"code": code, "label": label, "count": counts[code]} for code, label in FIELD_LABELS.items()],
         "doc_types": DOC_TYPE_LABELS,
-        "documents": docs_out, "issues": issues_out, "candidates": cands_out,
-        "ai_results": ai_out,  # 연구원이 모두 검증하고 승인권자가 공개 승인한 결과만(없으면 빈 목록)
+        "documents": docs_out, "issues": issues_out, "candidates": cands_out, "dashboard": dashboard,
     }
     snapshot = _scrub(snapshot)
     assert_no_personal_data(snapshot)
     return snapshot
-
-
-def _approved_ai_results(db: Session, doc_ids: set, issue_ids: set[str]) -> list[dict]:
-    """공개 승인된 AI 분석만 내보낸다 — 모의 응답·미검증·반려 문장 제외, 원문 발췌는 짧게(300자) 자르고 전문은 싣지 않는다.
-    미리 만든 결과이므로 '사전 생성·연구원 검토 후 공개 승인' 표시를 함께 담는다(실시간 AI 아님)."""
-    out = []
-    for a in db.scalars(select(AIAnalysis).where(AIAnalysis.public_approved_at.is_not(None), AIAnalysis.is_mock.is_(False), AIAnalysis.status == "completed")).all():
-        if a.verification_status != "researcher_verified":
-            continue
-        if a.target_type == "document" and a.target_id not in doc_ids:
-            continue
-        if a.target_type == "issue" and str(a.target_id) not in issue_ids:
-            continue
-        claims = []
-        for c in db.scalars(select(AIClaim).where(AIClaim.analysis_id == a.id).order_by(AIClaim.section_key, AIClaim.seq)).all():
-            if c.researcher_status != "verified":
-                continue
-            evs = [{"document_id": e.get("document_id"), "url": e.get("url"), "quote": (e.get("quote") or "")[:300], "location": e.get("location")}
-                   for e in json.loads(c.evidence_json or "[]") if e.get("found")]
-            claims.append({"section": c.section_key, "type": c.claim_type, "text": c.text, "evidence": evs})
-        out.append({"id": str(a.id), "kind": a.kind, "target_type": a.target_type, "target_id": str(a.target_id), "model": a.model,
-                    "generated_at": a.finished_at.date().isoformat() if a.finished_at else None, "claims": claims,
-                    "label": "사전 생성한 AI 분석 — 연구원이 문장별로 원문 근거를 확인하고 공개를 승인한 결과이며 실시간 AI 분석이 아닙니다"})
-    return out
 
 
 def main() -> None:

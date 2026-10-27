@@ -46,7 +46,7 @@ export async function logout(): Promise<void> {
   await fetch(`${API_BASE}/auth/logout`, { method: "POST", credentials: "include" });
 }
 
-export type CandidateStatus = "rec" | "review" | "hold" | "final" | "rejected";
+export type CandidateStatus = "rec" | "review" | "hold" | "final" | "rejected" | "research";
 
 export interface Candidate {
   id: string;
@@ -92,7 +92,7 @@ export interface CandidateRecommendationScore {
 
 export interface RelatedDocument {
   document_id: string; title: string; origin_url: string; org: string | null; country_code: string | null; published_at: string | null;
-  link_state: string; link_blocked: boolean; link_note: string | null; is_pdf: boolean; is_primary: boolean;
+  link_state: string; link_blocked: boolean; link_note: string | null; is_pdf: boolean; is_primary: boolean; added_by_researcher?: boolean;
 }
 export interface CandidateHistoryEntry {
   action: string; actor: string | null; at: string; detail: { changes?: Record<string, { from: unknown; to: unknown }>; comment?: string } | null;
@@ -102,7 +102,20 @@ export interface CandidateDetail extends Candidate {
   recommendation_score: CandidateRecommendationScore | null;
   assignee_name: string | null;
   related_documents: RelatedDocument[];
+  excluded_documents: RelatedDocument[];
+  issue_summary: CandidateIssueSummary | null;
+  domestic_relevance_note: string | null;
   history: CandidateHistoryEntry[];
+}
+
+export interface CandidateIssueSummary {
+  issue_id: string; title: string; review_status: string; document_count: number; key_summary: string | null; dispute_status: string; dispute_label: string; dispute_count: number;
+  dispute_note: string; timeline: { date: string | null; type: string; label: string | null; document_id: string; title: string | null; description: string | null }[];
+  first_published: string | null; latest_activity: string | null; followup_count: number; needs_cluster_review: boolean;
+}
+
+export function changeCandidateEvidence(id: string, document_id: string, action: "add" | "exclude" | "restore", note?: string): Promise<{ related_documents: RelatedDocument[]; excluded_documents: RelatedDocument[] }> {
+  return apiFetch(`/candidates/${id}/evidence`, { method: "POST", body: JSON.stringify({ document_id, action, note }) });
 }
 
 export function listCandidates(filters: { field_code?: string; status?: string; q?: string; assignee_user_id?: string; mine?: string } = {}): Promise<Candidate[]> {
@@ -116,7 +129,7 @@ export function createCandidate(payload: { field_code: string; title: string; su
   return apiFetch<Candidate>("/candidates", { method: "POST", body: JSON.stringify(payload) });
 }
 
-export function updateCandidate(id: string, payload: Partial<{ title: string; summary: string; recommended_reason: string; status: CandidateStatus; assignee_user_id: string | null }>): Promise<Candidate> {
+export function updateCandidate(id: string, payload: Partial<{ field_code: string; title: string; summary: string; recommended_reason: string; status: CandidateStatus; assignee_user_id: string | null }>): Promise<Candidate> {
   return apiFetch<Candidate>(`/candidates/${id}`, { method: "PATCH", body: JSON.stringify(payload) });
 }
 
@@ -577,6 +590,11 @@ export function createManuscript(payload: { candidate_id?: string; edition_id?: 
 
 export function getManuscript(id: string): Promise<ManuscriptDetail> {
   return apiFetch<ManuscriptDetail>(`/manuscripts/${id}`);
+}
+
+export interface LintWarning { type: string; severity: "error" | "warn" | "info"; message: string; sentence: string | null; footnote_id: string | null }
+export function lintManuscript(id: string): Promise<{ warnings: LintWarning[]; counts: { error: number; warn: number; info: number }; checked_footnotes: number; note: string }> {
+  return apiFetch(`/manuscripts/${id}/lint`);
 }
 
 export function getManuscriptContext(id: string): Promise<{ candidate: CandidateDetail | null; issue: IssueDetail | null }> {

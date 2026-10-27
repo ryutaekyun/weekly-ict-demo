@@ -110,6 +110,7 @@ def ai_status() -> dict:
     gaps = [] if provider else configuration_gaps()
     return {
         "configured": provider is not None,
+        "paid_locked": True,  # 유료 외부 AI는 이 버전에서 코드 수준으로 차단됨 — 화면은 유료 연결·승인·진단 기능을 숨긴다
         "provider": provider.name if provider else None,
         "model": provider.model if provider else None,
         "is_mock": bool(provider and provider.name == "mock"),
@@ -121,7 +122,7 @@ def ai_status() -> dict:
         "max_documents": MAX_DOCS,
         "max_chars_per_document": MAX_CHARS_PER_DOC,
         "require_approval": bool(provider and approval_required(provider.name)), "max_cost_per_request_usd": per_request_cap(),
-        "message": None if provider else "AI 설정 필요 — " + ("; ".join(gaps) or "서버 환경변수가 설정되지 않아") + ". 규칙 기반 분석은 계속 사용할 수 있습니다.",
+        "message": None if provider else "이 시연 버전은 유료 AI를 사용하지 않습니다 — 규칙 기반 자동 분석과 연구원 검토·집필 기능을 사용하세요.",
     }
 
 

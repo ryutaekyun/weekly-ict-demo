@@ -20,6 +20,11 @@ from typing import Protocol
 
 import httpx
 
+# 무료 시연 버전: 외부 유료 LLM(Anthropic·OpenAI)은 코드 수준에서 차단한다. 환경변수·API 키·관리자 설정으로는 켜지지 않으며,
+# 다시 쓰려면 이 상수를 바꾸는 별도의 명시적 개발 변경(코드 수정·검토·배포)이 필요하다. (사용자 결정: 유료 호출 절대 불가)
+PAID_AI_DISABLED = True
+PAID_HOSTS = ("api.anthropic.com", "api.openai.com")
+
 AI_PROVIDER_ENV = "AI_PROVIDER"  # "anthropic" | "openai" (| "mock": 개발·테스트 전용)
 AI_MODEL_ENV = "AI_MODEL"
 MAX_CHUNK_CHARS = 8000
@@ -67,6 +72,10 @@ class AIServiceError(Exception):
     def __init__(self, message: str | None = None, *, http_status: int | None = None):
         super().__init__(redact_secrets(message or self.user_message))
         self.http_status = http_status
+
+
+class AIBlockedError(AIServiceError):
+    code, user_message = "paid_ai_blocked", "이 무료 시연 버전에서는 외부 유료 AI 호출이 코드 수준으로 차단되어 있습니다"
 
 
 class AIAuthError(AIServiceError):
@@ -147,6 +156,8 @@ def _raise_for_status(resp: httpx.Response, provider: str) -> None:
 
 
 def _http(method: str, url: str, provider: str, **kwargs) -> httpx.Response:
+    if PAID_AI_DISABLED and any(h in str(url) for h in PAID_HOSTS):
+        raise AIBlockedError()  # 네트워크 요청을 만들기 전에 차단 — 외부 AI 요청 0건 보장
     try:
         resp = httpx.request(method, url, timeout=REQUEST_TIMEOUT_SECONDS, **kwargs)
     except httpx.TimeoutException as exc:
@@ -265,8 +276,8 @@ def get_ai_provider() -> AIProvider | None:
         from app.services.ai_mock import MockProvider
 
         return MockProvider()
-    if _getenv("AI_ALLOW_PAID").strip() != "1":
-        return None  # 유료 외부 AI는 AI_ALLOW_PAID=1을 명시하기 전에는 키가 있어도 절대 호출하지 않는다(무료 시연 보호 잠금)
+    if PAID_AI_DISABLED:
+        return None  # 무료 시연 버전: 유료 공급자는 키·환경변수와 무관하게 만들지 않는다(자동 전환·우회 경로 없음)
     if not model:
         return None  # 모델 미지정(OpenAI 등) — 추측하지 않고 설정 필요로 처리
     if provider_name == "anthropic":
@@ -288,8 +299,8 @@ def configuration_gaps() -> list[str]:
     if name not in ("anthropic", "openai"):
         return [f"지원하지 않는 AI_PROVIDER: {name}"]
     gaps = []
-    if _getenv("AI_ALLOW_PAID").strip() != "1":
-        gaps.append("유료 외부 AI 잠금(AI_ALLOW_PAID=1이 아님) — 무료 시연 모드")
+    if PAID_AI_DISABLED:
+        gaps.append("무료 시연 버전 — 유료 외부 AI는 코드 수준으로 차단됨(환경변수로 켤 수 없음)")
     if not (_getenv(AI_MODEL_ENV).strip() or _DEFAULT_MODELS.get(name)):
         gaps.append("AI_MODEL이 필요함(이 공급자는 기본 모델을 두지 않음)")
     if not _getenv("ANTHROPIC_API_KEY" if name == "anthropic" else "OPENAI_API_KEY").strip():

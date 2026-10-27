@@ -25,42 +25,28 @@ async function pickUsableDoc(page: Page): Promise<string> {
   throw new Error("분석 가능한 문서를 찾지 못함");
 }
 
-test("3-6.2A — 실제 AI 호출은 관리자의 1건 승인이 있어야 실행 버튼이 켜지고, 승인 후 예산 상한·1회용 안내가 표시된다(화면 동작)", async ({ page }) => {
+test("무료 시연 — 유료 AI 승인·사전 점검·연결 진단·단가 설정 UI는 보이지 않고 잠금 안내만 표시된다", async ({ page }) => {
   await login(page, E2E_ADMIN);
   const docId = await pickUsableDoc(page);
-  let approved = false;
-  let approvalBody: any = null;
-  const approval = () => ({ id: "ap1", kind: "document", target_id: docId, model: "claude-sonnet-5-5", max_cost_usd: approvalBody?.max_cost_usd ?? 0.1, note: null, expires_at: new Date(Date.now() + 3600_000).toISOString(), used_at: null, used_analysis_id: null, revoked: false });
   await page.route((u) => u.port === "8000" && u.pathname === "/ai/estimate", async (route) => {
     const res = await route.fetch();
     const body = await res.json();
-    await route.fulfill({ response: res, json: { ...body, approval_required: true, approval: approved ? approval() : null, est_cost_usd: 0.0607, price_known: true, pricing_version: "anthropic/claude-sonnet-5-5 v1 기준일 2026-10-27" } });
-  });
-  await page.route((u) => u.port === "8000" && u.pathname === "/ai/approvals", async (route) => {
-    if (route.request().method() !== "POST") return route.fallback();
-    approvalBody = JSON.parse(route.request().postData() ?? "{}");
-    approved = true;
-    await route.fulfill({ json: approval() });
+    await route.fulfill({ response: res, json: { ...body, approval_required: true, approval: null } }); // 서버가 승인을 요구하는 것처럼 보여도 UI는 유료 승인 기능을 노출하지 않는다
   });
   await page.goto(`/documents/${docId}`);
   const panel = page.getByTestId("ai-panel-document");
   const again = panel.getByRole("button", { name: "다시 분석" });
   if ((await again.count()) > 0) await again.click(); else await panel.getByTestId("ai-run").click();
-  await expect(panel.getByTestId("ai-approval-needed")).toContainText("관리자의 1건 승인이 필요합니다");
-  await expect(panel.getByTestId("ai-confirm")).toBeDisabled(); // 승인 전에는 실행할 수 없다
-  await panel.getByTestId("ai-preflight").click(); // 관리자 사전 점검: 유료 호출 없이 전달 형식·토큰(키가 없으면 미측정)·최대 비용을 보여 준다
-  const pre = panel.getByTestId("ai-preflight-result");
-  await expect(pre).toContainText("model, max_tokens, system, messages");
-  await expect(pre).toContainText("temperature, top_p, top_k, thinking");
-  await expect(pre).toContainText("미측정");
-  await panel.getByLabel("예산 상한(USD)").fill("0.10");
-  await panel.getByTestId("ai-approve").click();
-  await expect.poll(() => approvalBody).not.toBeNull();
-  expect(approvalBody.kind).toBe("document");
-  expect(approvalBody.max_cost_usd).toBe(0.1);
-  await expect(panel.getByTestId("ai-approved")).toContainText("예산 상한 $0.1");
-  await expect(panel.getByTestId("ai-approved")).toContainText("1회용");
-  await expect(panel.getByTestId("ai-confirm")).toBeEnabled();
+  await expect(panel.getByTestId("ai-estimate")).toBeVisible();
+  await expect(panel.getByTestId("ai-approval-needed")).toHaveCount(0);
+  await expect(panel.getByTestId("ai-approve")).toHaveCount(0);
+  await expect(panel.getByTestId("ai-preflight")).toHaveCount(0);
+  await expect(panel.getByTestId("ai-mock-banner")).toContainText("모의 응답(테스트용) — 실제 LLM 분석 아님");
+  await page.goto("/settings");
+  const admin = page.getByTestId("ai-admin-panel");
+  await expect(admin.getByTestId("ai-paid-locked")).toContainText("코드 수준으로 비활성화");
+  await expect(admin.getByTestId("ai-diagnose")).toHaveCount(0);
+  await expect(admin.getByTestId("ai-price-table")).toHaveCount(0);
 });
 
 test("3-6.2A — 분석 결과의 품질 평가(7개 항목)는 모든 항목 선택 후에만 저장되고, 모의 응답 평가는 실제 AI 집계와 분리된다", async ({ page }) => {
@@ -89,5 +75,4 @@ test("3-6.2A — 분석 결과의 품질 평가(7개 항목)는 모든 항목 �
   await expect(summary).toContainText("합산하지 않습니다");
   await expect(summary).toContainText("실제 AI: 평가 0건");
   await expect(summary).toContainText(/모의 응답: 평가 [1-9]\d*건/);
-  await expect(page.getByTestId("ai-gate-status")).toContainText("승인 불필요(모의 공급자");
 });

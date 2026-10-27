@@ -138,6 +138,8 @@ def list_pricing(db: Session = Depends(get_db), _: User = Depends(get_current_us
 
 @router.put("/pricing")
 def set_pricing(payload: PriceIn, db: Session = Depends(get_db), current_user: User = Depends(require_roles(UserRole.ADMIN))):
+    if ai_service.PAID_AI_DISABLED:
+        raise HTTPException(status_code=403, detail="무료 시연 버전 — 유료 AI 단가 설정은 비활성화되어 있습니다")
     """관리자가 제공자·모델별 단가를 갱신한다. 이전 단가는 보존(비활성)하고 새 버전을 만든다 — 과거 분석의 비용 기준이 바뀌지 않는다."""
     prev = db.scalars(select(AIPriceSetting).where(AIPriceSetting.provider == payload.provider, AIPriceSetting.model == payload.model)).all()
     for r in prev:
@@ -157,6 +159,8 @@ def set_pricing(payload: PriceIn, db: Session = Depends(get_db), current_user: U
 def diagnostics(current_user: User = Depends(require_roles(UserRole.ADMIN))):
     """관리자 전용 연결 진단 — 키가 있을 때만 모델 목록 조회(토큰을 쓰지 않는 호출)로 설정한 모델이 실제 사용 가능한지 확인한다.
     키가 없으면 '연결 미검증'으로 돌려주며 성공으로 보고하지 않는다."""
+    if ai_service.PAID_AI_DISABLED:
+        return {"connection": "blocked", "verified": False, "message": "무료 시연 버전 — 유료 외부 AI 연결·진단은 코드 수준으로 비활성화되어 있습니다(외부 요청 없음)"}
     provider = ai_service.get_ai_provider()
     if provider is None:
         return {"connection": "not_configured", "verified": False, "message": "연결 미검증 — " + "; ".join(ai_service.configuration_gaps() or ["설정 없음"])}
@@ -191,6 +195,8 @@ class EvaluationIn(BaseModel):
 @router.post("/approvals")
 def create_approval(payload: ApprovalIn, db: Session = Depends(get_db), current_user: User = Depends(require_roles(UserRole.ADMIN))):
     """관리자가 실제(비모의) AI 호출 1건을 승인한다 — 대상·모델·예산 상한을 지정하며 한 번 쓰면 소멸한다."""
+    if ai_service.PAID_AI_DISABLED:
+        raise HTTPException(status_code=403, detail="무료 시연 버전 — 유료 AI 호출 승인은 비활성화되어 있습니다")
     try:
         a = svc.create_approval(db, current_user, payload.kind, payload.target_id, payload.max_cost_usd, payload.valid_minutes, payload.note)
     except svc.AIRequestError as exc:
@@ -255,6 +261,8 @@ def list_evaluations(analysis_id: uuid.UUID, db: Session = Depends(get_db), _: U
 
 @router.post("/preflight")
 def preflight(payload: RunIn, db: Session = Depends(get_db), _: User = Depends(require_roles(UserRole.ADMIN))):
+    if ai_service.PAID_AI_DISABLED:
+        raise HTTPException(status_code=403, detail="무료 시연 버전 — 유료 AI 사전 점검은 비활성화되어 있습니다")
     """관리자 전용 첫 호출 사전 점검 — 유료 생성 호출 없이 전달 데이터·실측 토큰(키가 있을 때, 무료 Token Counting)·최대 비용·권장 승인 상한을 확인한다."""
     try:
         return svc.preflight(db, payload.kind, payload.target_id, payload.document_ids)

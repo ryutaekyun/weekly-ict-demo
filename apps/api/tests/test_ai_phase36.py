@@ -102,7 +102,7 @@ def test_ai_not_configured_does_not_fake_results_and_rule_based_features_keep_wo
     use(monkeypatch, None)
     doc = make_doc(db_session, title="Doc", field=FieldCode.AI, full_text=FMVSS_A)
     st = client.get("/ai/status", headers=researcher).json()
-    assert st["configured"] is False and "AI 설정 필요" in st["message"]
+    assert st["configured"] is False
     r = run(client, researcher, "document", doc.id)
     assert r.status_code == 409 and r.json()["detail"]["code"] == "ai_not_configured"
     assert db_session.query(AIAnalysis).count() == 0  # 가짜 분석을 저장하지 않는다
@@ -358,18 +358,14 @@ def test_mock_provider_requires_explicit_allow_and_is_labeled(client, db_session
     assert approver and client.post(f"/ai/analyses/{out['id']}/public-approval", headers=auth_headers(client, "ai-ap2@example.com")).status_code == 409
 
 
-def test_public_snapshot_contains_only_researcher_verified_and_approved_ai_results(client, db_session, researcher, monkeypatch):
+def test_public_snapshot_never_contains_ai_results_in_free_demo(client, db_session, researcher, monkeypatch):
+    """무료 시연 버전: 공개 스냅샷에는 AI 결과(모의·검증 여부와 무관)를 싣지 않는다."""
     from app import export_public_snapshot as snap
 
     doc = make_doc(db_session, title="Public official doc", field=FieldCode.AI, url="https://example.org/pub", full_text=FMVSS_A)
     use(monkeypatch, FakeProvider(doc_payload({"summary": [item("최종 규정은 2025.2.18.부터 시행됨", [("D1", "The final rule takes effect on February 18, 2025.")])]})))
     out = run(client, researcher, "document", doc.id).json()
-    assert snap.build_snapshot(db_session)["ai_results"] == []  # 미검증·미승인 결과는 나가지 않는다
     cid = out["sections"][0]["claims"][0]["id"]
     client.post(f"/ai/claims/{cid}/review", headers=researcher, json={"action": "verify"})
-    assert snap.build_snapshot(db_session)["ai_results"] == []  # 검증만으로는 부족 — 공개 승인 필요
-    make_user(db_session, "ai-pub@example.com", UserRole.APPROVER)
-    assert client.post(f"/ai/analyses/{out['id']}/public-approval", headers=auth_headers(client, "ai-pub@example.com")).status_code == 200
-    ai = snap.build_snapshot(db_session)["ai_results"]
-    assert len(ai) == 1 and "실시간 AI 분석이 아닙니다" in ai[0]["label"] and ai[0]["claims"][0]["evidence"][0]["url"] == "https://example.org/pub"
-    assert "full_text" not in json.dumps(ai) and len(ai[0]["claims"][0]["evidence"][0]["quote"]) <= 300
+    s = snap.build_snapshot(db_session)
+    assert "ai_results" not in s and "최종 규정은 2025.2.18." not in json.dumps(s, ensure_ascii=False)

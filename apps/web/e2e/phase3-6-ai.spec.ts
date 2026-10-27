@@ -82,17 +82,18 @@ test("3-6 A·B·H — 공식 원문 선택 → AI 분석 요청 → 결과 저�
   await expect(p2.getByTestId("ai-error")).toContainText("사유");
 });
 
-test("3-6 C — AI 미설정 상태: 가짜 결과 없이 'AI 설정 필요'를 표시하고 규칙 기반 화면은 그대로 동작한다", async ({ page }) => {
+test("3-6 C — AI(모의 포함) 미설정 상태: 가짜 결과 없이 '규칙 기반 자동 분석' 안내만 보이고 규칙 기반 화면은 그대로 동작한다", async ({ page }) => {
   await login(page, E2E_ADMIN);
   const doc = await pickDocWithText(page, 1);
   await page.route((u) => u.port === "8000" && u.pathname === "/ai/status", (route) =>
-    route.fulfill({ json: { configured: false, provider: null, model: null, is_mock: false, daily_limit_per_user: 30, message: "AI 설정 필요 — 서버 환경변수가 설정되지 않아 AI 분석을 실행할 수 없습니다." } }));
+    route.fulfill({ json: { configured: false, provider: null, model: null, is_mock: false, paid_locked: true, daily_limit_per_user: 30, connection: "not_configured", connection_note: "", config_gaps: [], require_approval: false, max_cost_per_request_usd: null, message: "이 시연 버전은 유료 AI를 사용하지 않습니다" } }));
   await page.goto(`/documents/${doc.id}`);
   const panel = page.getByTestId("ai-panel-document");
-  await expect(panel.getByTestId("ai-state")).toHaveText("AI 설정 필요");
-  await expect(panel.getByTestId("ai-config-needed")).toContainText("규칙 기반 분석 결과는 이 화면에서 그대로");
-  await expect(panel.getByTestId("ai-run")).toBeDisabled();
-  await expect(page.getByTestId("detail-origin-link")).toBeVisible(); // 기존 기능(원문 링크·분류 화면)은 정상
+  await expect(panel.getByTestId("ai-free-note")).toContainText("유료 AI(LLM)를 사용하지 않습니다");
+  await expect(panel.getByTestId("ai-free-note")).toContainText("규칙 기반 자동 분석");
+  await expect(panel.getByTestId("ai-run")).toHaveCount(0); // 가짜 분석 버튼 없음
+  await expect(panel.getByTestId("ai-rule-only")).toBeVisible(); // 규칙 기반 결과는 그대로 표시
+  await expect(page.getByTestId("detail-origin-link")).toBeVisible();
   await expect(page.locator("h1")).toHaveText(doc.title);
   await page.goto("/documents");
   await expect(page.getByTestId("news-row").first()).toBeVisible();

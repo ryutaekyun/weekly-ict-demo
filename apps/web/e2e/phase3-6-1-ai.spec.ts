@@ -183,10 +183,9 @@ test("3-6.1 I — 단가 미설정이면 비용을 '계산 불가'로 표시하�
   await page.goto("/settings");
   const admin = page.getByTestId("ai-admin-panel");
   await expect(admin.getByTestId("ai-conn-status")).toContainText("모의 공급자");
-  await admin.getByTestId("ai-diagnose").click();
-  await expect(admin.getByTestId("ai-diag-result")).toContainText("미검증");
+  await expect(admin.getByTestId("ai-diagnose")).toHaveCount(0); // 무료 시연: 유료 연결 진단 버튼 없음
   await expect(admin.getByTestId("ai-usage")).toContainText("실제 제공자 청구금액이 아닙니다");
-  await expect(admin.getByTestId("ai-price-table")).toBeVisible();
+  await expect(admin.getByTestId("ai-price-table")).toHaveCount(0);
   // 일반 검토자에게는 연결 진단 버튼이 없다
   await page.context().clearCookies();
   await login(page, E2E_REVIEWER);

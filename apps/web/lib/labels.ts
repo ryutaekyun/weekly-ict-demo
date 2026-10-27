@@ -16,6 +16,7 @@ export const CANDIDATE_STATUS_LABELS: Record<string, string> = {
   hold: "보류",
   final: "확정",
   rejected: "반려",
+  research: "추가 조사 필요",
 };
 
 export const RELEVANCE_LABELS: Record<string, string> = {

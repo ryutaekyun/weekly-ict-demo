@@ -1,8 +1,10 @@
 "use client";
 
 import AiPanel from "@/components/AiPanel";
+import SourceBench, { type InsertSource } from "@/components/SourceBench";
+import { lintManuscript, type LintWarning, type RelatedDocument } from "@/lib/api";
 import AiInsertionsPanel from "@/components/AiInsertionsPanel";
-import { aiListInsertions, type AiInsertionRow } from "@/lib/aiApi";
+import { aiListInsertions, aiStatus, type AiInsertionRow } from "@/lib/aiApi";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -58,7 +60,7 @@ const IITP_LABELS: Record<string, string> = {
   not_selected: "IITP 미선정",
 };
 
-type RightTab = "context" | "footnotes" | "comments" | "versions" | "ai";
+type RightTab = "context" | "footnotes" | "comments" | "versions" | "ai" | "lint";
 
 export default function ManuscriptWorkspacePage() {
   const params = useParams<{ id: string }>();
@@ -74,6 +76,8 @@ export default function ManuscriptWorkspacePage() {
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "conflict" | "error">("idle");
   const [rightTab, setRightTab] = useState<RightTab>("context");
   const [insertions, setInsertions] = useState<AiInsertionRow[]>([]);
+  const [aiTestMode, setAiTestMode] = useState(false);
+  const [lint, setLint] = useState<{ warnings: LintWarning[]; counts: { error: number; warn: number; info: number }; note: string } | null>(null);
   const [footnoteDraft, setFootnoteDraft] = useState<{ text: string; from: number; to: number } | null>(null);
   const [footnoteForm, setFootnoteForm] = useState({ source_url: "", source_org: "", excerpt: "", location_label: "", source_document_id: "" });
   const [commentText, setCommentText] = useState("");
@@ -115,6 +119,7 @@ export default function ManuscriptWorkspacePage() {
 
   useEffect(() => {
     getCurrentUser().then(setMe).catch(() => {});
+    aiStatus().then((s) => setAiTestMode(s.is_mock)).catch(() => setAiTestMode(false));
     load();
   }, [load]);
 
@@ -126,6 +131,70 @@ export default function ManuscriptWorkspacePage() {
     if (!editorRef.current) return [] as string[];
     return collectFootnoteOrder(editorRef.current.state.doc);
   }, [footnotes, manuscript]);
+
+  // ---- 무료 작성 보조(규칙 기반): 원문 인용·발췌문 삽입·목차 템플릿·기본 제목·작성 점검. 기존 문장을 덮어쓰지 않고 커서가 있는 문단 '뒤'에 덧붙인다 ----
+  function insertionPos(editor: Editor): number {
+    try {
+      const { $from } = editor.state.selection;
+      return $from.depth >= 1 ? $from.after(1) : editor.state.doc.content.size;
+    } catch {
+      return editor.state.doc.content.size;
+    }
+  }
+
+  async function insertFromBench(text: string, src: InsertSource) {
+    const editor = editorRef.current;
+    if (!manuscript || !editor) return;
+    setErrorMsg(null);
+    const markId = crypto.randomUUID();
+    try {
+      const created = await createFootnote(manuscript.id, {
+        mark_id: markId, anchor_text: text.slice(0, 500), source_url: src.doc.origin_url, source_org: src.doc.org ?? undefined,
+        excerpt: src.excerpt, location_label: src.location, source_document_id: src.doc.document_id,
+      });
+      editor.chain().focus().insertContentAt(insertionPos(editor), { type: "paragraph", content: [{ type: "text", text, marks: [{ type: "footnoteMark", attrs: { footnoteId: markId } }] }] }).run();
+      setFootnotes((prev) => [...prev, created]);
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      await doSave(JSON.stringify(editor.getJSON()), editor.getText());
+      refreshLint();
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? `삽입 실패: ${err.message}` : "삽입 실패");
+    }
+  }
+
+  async function insertTemplate() {
+    const editor = editorRef.current;
+    if (!editor) return;
+    const h = (text: string) => ({ type: "heading", attrs: { level: 2 }, content: [{ type: "text", text }] });
+    const p = (text: string) => ({ type: "paragraph", content: [{ type: "text", text }] });
+    editor.chain().focus().insertContentAt(insertionPos(editor), [
+      h("Ⅰ. 배경과 주요 내용"), p("(연구원이 작성 — 발표 기관·발표일·핵심 변경사항을 원문 근거와 함께 정리)"),
+      h("Ⅱ. 일정(발표일·시행일·준수 시한 구분)"), p("(연구원이 작성 — 날짜는 원문 발췌문과 대조)"),
+      h("Ⅲ. 쟁점 및 동향"), p("(연구원이 작성 — 서로 다른 입장은 근거 문서가 2건 이상일 때만 정리)"),
+      h("Ⅳ. 국내 시사점"), p("(연구원이 작성 — 근거가 확보된 경우에만)"),
+      h("Ⅴ. 향후 모니터링 사항"), p("(연구원이 작성)"),
+    ]).run();
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    await doSave(JSON.stringify(editor.getJSON()), editor.getText(), { changeNote: "보고서 목차 템플릿 삽입" });
+    setActionMsg("목차 템플릿을 커서가 있는 문단 뒤에 넣었습니다(기존 문장은 그대로).");
+  }
+
+  async function loadTitleFromCandidate() {
+    if (!manuscript || !context?.candidate?.title) { setErrorMsg("연결된 후보주제가 없어 기본 제목을 불러올 수 없습니다"); return; }
+    try {
+      const lock = await ensureSavedLock();
+      const editor = editorRef.current;
+      await updateManuscriptBody(manuscript.id, { title: context.candidate.title, body_json: editor ? JSON.stringify(editor.getJSON()) : manuscript.body_json ?? "", body: editor ? editor.getText() : (manuscript.body ?? ""), lock_version: lock, change_note: "후보주제 제목 불러오기" });
+      load();
+      setActionMsg("후보주제의 제목을 원고 제목으로 불러왔습니다(본문은 바꾸지 않았습니다).");
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? `제목 불러오기 실패: ${err.message}` : "제목 불러오기 실패");
+    }
+  }
+
+  function refreshLint() {
+    lintManuscript(params.id).then(setLint).catch(() => setLint(null));
+  }
 
   async function ensureSavedLock(): Promise<number> {
     // 저장 대기 중인 연구원 수정이 있으면 먼저 저장하고, 서버의 최신 lock_version을 돌려준다(AI 삽입이 연구원 수정을 덮어쓰지 않도록)
@@ -419,6 +488,8 @@ export default function ManuscriptWorkspacePage() {
           주요 버전 저장
         </button>
         <button className="tbtn" disabled={!canEdit} onClick={handleSelectForFootnote}>선택 영역에 근거 연결</button>
+        <button className="tbtn" disabled={!canEdit} data-testid="load-title" onClick={loadTitleFromCandidate}>후보 제목 불러오기</button>
+        <button className="tbtn" disabled={!canEdit} data-testid="insert-template" onClick={insertTemplate}>목차 템플릿 삽입</button>
 
         {manuscript.status === "draft" || manuscript.status === "changes_requested" ? (
           <>
@@ -482,7 +553,7 @@ export default function ManuscriptWorkspacePage() {
         </div>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "220px 1fr 340px", gap: 16, alignItems: "start" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "280px 1fr 340px", gap: 16, alignItems: "start" }}>
         {/* 왼쪽: 목차 */}
         <div className="panel">
           <h2 style={{ fontSize: 13, margin: "0 0 8px" }}>원고 정보</h2>
@@ -496,6 +567,7 @@ export default function ManuscriptWorkspacePage() {
           </dl>
           <h2 style={{ fontSize: 13, margin: "12px 0 8px" }}>목차(본문 제목 기준)</h2>
           <TocList editor={editorRef.current} />
+          <SourceBench docs={(context?.candidate?.related_documents ?? []) as RelatedDocument[]} canEdit={canEdit} onInsert={insertFromBench} />
         </div>
 
         {/* 가운데: 편집기 */}
@@ -516,18 +588,32 @@ export default function ManuscriptWorkspacePage() {
             <button className="tbtn" style={tabStyle(rightTab === "footnotes")} onClick={() => setRightTab("footnotes")}>각주({footnoteOrder.length || footnotes.length})</button>
             <button className="tbtn" style={tabStyle(rightTab === "comments")} onClick={() => setRightTab("comments")}>검토의견({comments.filter((c) => c.status === "open").length})</button>
             <button className="tbtn" style={tabStyle(rightTab === "versions")} onClick={() => setRightTab("versions")}>버전({versions.length})</button>
-            {(manuscript.candidate_id || insertions.length > 0) && (
+            <button className="tbtn" style={tabStyle(rightTab === "lint")} data-testid="tab-lint" onClick={() => { setRightTab("lint"); refreshLint(); }}>작성 점검{lint && lint.counts.error + lint.counts.warn > 0 ? `(${lint.counts.error + lint.counts.warn})` : ""}</button>
+            {((manuscript.candidate_id && aiTestMode) || insertions.length > 0) && (
               <button className="tbtn" style={tabStyle(rightTab === "ai")} onClick={() => setRightTab("ai")} data-testid="tab-ai">
-                AI 제안{insertions.some((i) => i.needs_review) ? " ⚠ 재검토" : ""}
+                {aiTestMode ? "모의 AI(테스트)" : "AI 삽입 이력"}{insertions.some((i) => i.needs_review) ? " ⚠ 재검토" : ""}
               </button>
             )}
           </div>
 
           {rightTab === "context" && <ContextPanel context={context} />}
+          {rightTab === "lint" && (
+            <div data-testid="lint-panel" style={{ fontSize: 12.5 }}>
+              <button className="tbtn" onClick={refreshLint}>다시 점검</button>
+              {lint && <p style={{ color: "var(--ink-muted)" }}>{lint.note}</p>}
+              {lint && lint.warnings.length === 0 && <p style={{ color: "var(--ok)" }}>점검에서 발견된 문제가 없습니다(검증 완료라는 뜻은 아닙니다).</p>}
+              {lint?.warnings.map((w, i) => (
+                <div key={i} data-testid="lint-warning" data-severity={w.severity} style={{ borderLeft: `3px solid ${w.severity === "error" ? "var(--bad)" : w.severity === "warn" ? "var(--warn)" : "var(--border)"}`, padding: "4px 8px", margin: "6px 0" }}>
+                  <b>{w.severity === "error" ? "오류" : w.severity === "warn" ? "주의" : "참고"}</b> · {w.message}
+                  {w.sentence && <div style={{ color: "var(--ink-muted)" }}>“{w.sentence}”</div>}
+                </div>
+              ))}
+            </div>
+          )}
           {rightTab === "ai" && (
             <>
               <AiInsertionsPanel rows={insertions} getLockVersion={ensureSavedLock} onChanged={reloadAfterAiInsert} />
-              {manuscript.candidate_id && (
+              {manuscript.candidate_id && aiTestMode && (
                 <>
                   <AiPanel kind="outline" targetId={manuscript.candidate_id} title="AI 목차 제안" buttonLabel="AI 목차 제안" testId="ai-panel-outline" manuscript={aiTarget} />
                   <AiPanel kind="draft" targetId={manuscript.candidate_id} title="AI 초안 제안 (연구원 검토용 초안 · 선택한 문장만 삽입)" buttonLabel="AI 초안 제안" testId="ai-panel-draft" manuscript={aiTarget} />

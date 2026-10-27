@@ -1,8 +1,9 @@
 import json
 import uuid
 
+from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.audit import log_action
@@ -101,7 +102,15 @@ def _get_candidate_or_404(db: Session, candidate_id: uuid.UUID) -> Candidate:
     return candidate
 
 
-def _related_documents(db: Session, candidate: Candidate) -> list[dict]:
+def _id_list(raw: str | None) -> list[str]:
+    try:
+        v = json.loads(raw) if raw else []
+        return [str(x) for x in v] if isinstance(v, list) else []
+    except ValueError:
+        return []
+
+
+def _related_documents(db: Session, candidate: Candidate, *, excluded: bool = False) -> list[dict]:
     """후보주제의 근거 원문: 대표 근거 문서 + 같은 핵심 이슈의 수집 문서. 뉴스 카드와 같은 원문 링크 상태를 쓴다."""
     ids: list[uuid.UUID] = []
     if candidate.source_document_id:
@@ -110,6 +119,15 @@ def _related_documents(db: Session, candidate: Candidate) -> list[dict]:
         for m in db.scalars(select(IssueClusterDocument).where(IssueClusterDocument.issue_cluster_id == candidate.issue_cluster_id)).all():
             if m.document_id not in ids:
                 ids.append(m.document_id)
+    for extra in _id_list(candidate.evidence_extra_json):  # 연구원이 직접 추가한 근거 원문
+        try:
+            u = uuid.UUID(extra)
+        except ValueError:
+            continue
+        if u not in ids:
+            ids.append(u)
+    excluded_ids = set(_id_list(candidate.evidence_excluded_json))
+    ids = [i for i in ids if (str(i) in excluded_ids) == excluded]
     out = []
     for doc_id in ids:
         doc = db.get(SourceDocument, doc_id)
@@ -120,8 +138,46 @@ def _related_documents(db: Session, candidate: Candidate) -> list[dict]:
         out.append({"document_id": str(doc.id), "title": doc.title, "origin_url": doc.origin_url, "org": src.org_name if src else None,
                     "country_code": doc.country_code, "published_at": doc.published_at.isoformat() if doc.published_at else None,
                     "link_state": link["state"], "link_blocked": link["blocked"], "link_note": link["note"], "is_pdf": link["is_pdf"],
-                    "is_primary": doc.id == candidate.source_document_id})
+                    "is_primary": doc.id == candidate.source_document_id, "added_by_researcher": str(doc.id) in _id_list(candidate.evidence_extra_json)})
     return out
+
+
+DISPUTE_LABELS = {"not_analyzed": "분석 전", "no_disputes_confirmed": "확인된 주요 의견 대립 없음", "disputes_found": "의견 대립 확인됨"}
+
+
+def _issue_summary(db: Session, candidate: Candidate) -> dict | None:
+    """후보주제가 속한 핵심 이슈의 규칙 기반 분석 요약 — 발표 시점·후속 동향·논쟁 가능성을 연구원이 한 화면에서 보게 한다."""
+    if candidate.issue_cluster_id is None:
+        return None
+    from app.models.issue_analysis import IssueAnalysis
+    from app.models.issue_cluster import IssueCluster
+    from app.models.issue_dispute_point import IssueDisputePoint
+    from app.models.issue_timeline_event import IssueTimelineEvent
+
+    cluster = db.get(IssueCluster, candidate.issue_cluster_id)
+    if cluster is None:
+        return None
+    analysis = db.scalar(select(IssueAnalysis).where(IssueAnalysis.issue_cluster_id == cluster.id))
+    disputes = db.scalars(select(IssueDisputePoint).where(IssueDisputePoint.issue_cluster_id == cluster.id)).all()
+    events = db.scalars(select(IssueTimelineEvent).where(IssueTimelineEvent.issue_cluster_id == cluster.id).order_by(IssueTimelineEvent.event_date)).all()
+    dispute_status = analysis.dispute_status.value if analysis else "not_analyzed"
+    timeline = []
+    for e in events:
+        doc = db.get(SourceDocument, e.document_id)
+        timeline.append({"date": e.event_date.date().isoformat() if e.event_date else None, "type": e.event_type.value, "label": e.event_date_label,
+                         "document_id": str(e.document_id), "title": doc.title if doc else None, "description": e.description})
+    member_count = db.scalar(select(func.count()).select_from(IssueClusterDocument).where(IssueClusterDocument.issue_cluster_id == cluster.id)) or 0
+    return {
+        "issue_id": str(cluster.id), "title": cluster.title, "review_status": cluster.review_status.value, "document_count": member_count,
+        "key_summary": analysis.key_summary if analysis else None, "dispute_status": dispute_status, "dispute_label": DISPUTE_LABELS.get(dispute_status, dispute_status),
+        "dispute_count": len(disputes),
+        "dispute_note": ("서로 다른 문서에서 상반된 주장이 규칙으로 확인된 경우에만 '의견 대립'으로 표시합니다." if dispute_status == "disputes_found" else
+                         "단일 문서이거나 상반된 주장이 확인되지 않아 논쟁으로 표시하지 않습니다(여러 기관이 논쟁 중인 것으로 간주하지 마세요)."),
+        "timeline": timeline,
+        "first_published": timeline[0]["date"] if timeline else None, "latest_activity": cluster.last_activity_at.date().isoformat() if cluster.last_activity_at else None,
+        "followup_count": sum(1 for e in timeline if e["type"] not in ("new_issue",)),
+        "needs_cluster_review": cluster.review_status.value == "needs_review",
+    }
 
 
 def _history(db: Session, candidate: Candidate) -> list[dict]:
@@ -152,6 +208,10 @@ def get_candidate(
     assignee = db.get(User, candidate.assignee_user_id) if candidate.assignee_user_id else None
     data["assignee_name"] = assignee.display_name if assignee else None
     data["related_documents"] = _related_documents(db, candidate)
+    data["excluded_documents"] = _related_documents(db, candidate, excluded=True)
+    data["issue_summary"] = _issue_summary(db, candidate)
+    data["domestic_relevance_note"] = ("국내 ICT 산업 관련성은 근거 자료가 확보된 경우에만 평가하며, 근거가 없으면 점수를 주지 않고 '평가 보류'로 표시합니다."
+                                       if score is None or score.domestic_relevance_score is None else None)
     data["history"] = _history(db, candidate)
     return CandidateDetailOut(**data)
 
@@ -254,3 +314,49 @@ def add_review(
     db.commit()
     db.refresh(review)
     return review
+
+
+class EvidenceAction(BaseModel):
+    document_id: uuid.UUID
+    action: str  # add | exclude | restore
+    note: str | None = None
+
+
+@router.post("/{candidate_id}/evidence")
+def change_evidence(
+    candidate_id: uuid.UUID,
+    payload: EvidenceAction,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """근거 원문을 연구원이 직접 추가·제외·복원한다. 문서 자체나 이슈 묶음은 바꾸지 않고 이 후보주제의 근거 목록만 바꾸며 이력이 남는다."""
+    candidate = _get_candidate_or_404(db, candidate_id)
+    if db.get(SourceDocument, payload.document_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="원문 문서를 찾을 수 없습니다")
+    did = str(payload.document_id)
+    extra, excluded = _id_list(candidate.evidence_extra_json), _id_list(candidate.evidence_excluded_json)
+    in_current = {d["document_id"] for d in _related_documents(db, candidate)}
+    if payload.action == "add":
+        if did in in_current:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="이미 근거 원문에 포함되어 있습니다")
+        if did in excluded:
+            excluded.remove(did)
+        elif did not in extra:
+            extra.append(did)
+    elif payload.action == "exclude":
+        if did not in in_current:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="현재 근거 원문에 없는 문서입니다")
+        if candidate.source_document_id and str(candidate.source_document_id) == did:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="대표 근거 문서는 제외할 수 없습니다 — 먼저 다른 문서를 대표로 지정하세요")
+        excluded.append(did)
+    elif payload.action == "restore":
+        if did not in excluded:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="제외된 문서가 아닙니다")
+        excluded.remove(did)
+    else:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="action은 add·exclude·restore 중 하나여야 합니다")
+    candidate.evidence_extra_json, candidate.evidence_excluded_json = json.dumps(extra), json.dumps(excluded)
+    log_action(db, actor_user_id=current_user.id, action=f"candidate.evidence.{payload.action}", entity_type="candidate", entity_id=candidate.id,
+               detail={"document_id": did, "note": payload.note})
+    db.commit()
+    return {"related_documents": _related_documents(db, candidate), "excluded_documents": _related_documents(db, candidate, excluded=True)}

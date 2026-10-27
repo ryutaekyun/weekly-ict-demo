@@ -192,8 +192,28 @@ export default function AiPanel({ kind, targetId, title, buttonLabel, documentId
   const stateKey = !status?.configured ? "config" : state === "running" ? "running" : state === "failed" ? "failed" : analysis?.status === "insufficient_evidence" ? "hold" : analysis ? "done" : "idle";
   const isDraft = kind === "draft" || kind === "outline";
 
+  // 무료 시연 버전: 실제(또는 모의) AI 공급자가 없으면 AI 패널 대신 '규칙 기반 자동 분석' 안내만 보여 준다(가짜 AI 결과·유료 연결 UI 없음)
+  if (status && !status.configured) {
+    return (
+      <section className="panel" style={{ marginBottom: 16 }} data-testid={testId}>
+        <h2 style={{ fontSize: 14, margin: "0 0 6px" }}>자동 분석 안내</h2>
+        <p data-testid="ai-free-note" style={{ fontSize: 12.5, color: "var(--ink-muted)", margin: 0 }}>
+          이 시연 버전은 <b>유료 AI(LLM)를 사용하지 않습니다.</b> 분야 분류·활용가치·핵심 내용·이슈 묶음·후보 추천은 키워드·규칙으로 계산한 <b>규칙 기반 자동 분석</b>이며 연구원 검토가 필요합니다.
+          생성형 AI가 분석·검증한 결과가 아닙니다.
+        </p>
+        {ruleBased && ruleBased.length > 0 && (
+          <div style={{ marginTop: 8, fontSize: 12.5 }} data-testid="ai-rule-only">
+            <b>규칙 기반 분석 결과</b>
+            {ruleBased.map((r) => <div key={r.label}><b>{r.label}</b>: {r.text || "-"}</div>)}
+          </div>
+        )}
+      </section>
+    );
+  }
+
   return (
     <section className="panel" style={{ marginBottom: 16 }} data-testid={testId}>
+      {(status?.is_mock || analysis?.is_mock) && <p data-testid="ai-mock-banner" role="note" style={{ margin: "0 0 6px", fontSize: 12.5, fontWeight: 700, color: "var(--warn)" }}>모의 응답(테스트용) — 실제 LLM 분석 아님</p>}
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <h2 style={{ fontSize: 14, margin: 0 }}>{title}</h2>
         <span className="pill hold" data-testid="ai-state">{STATE_LABEL[stateKey]}</span>
@@ -225,7 +245,7 @@ export default function AiPanel({ kind, targetId, title, buttonLabel, documentId
           <p style={{ fontSize: 11.5, color: "var(--ink-muted)", margin: "0 0 6px" }}>{estimate.price_note} 원문 공개자료만 외부 AI 서비스로 전송됩니다.</p>
           {estimate.existing_candidate_ids.length > 0 && <p style={{ fontSize: 12, color: "var(--warn)" }}>이 이슈에는 이미 후보주제 {estimate.existing_candidate_ids.length}건이 있습니다. 결과는 기존 후보에 연결할 수 있습니다.</p>}
           {estimate.blockers.map((b, i) => <p key={i} role="alert" style={{ color: "var(--bad)", fontSize: 12.5 }}>{b}</p>)}
-          {estimate.approval_required && !estimate.approval && (
+          {!status?.paid_locked && estimate.approval_required && !estimate.approval && (
             <div data-testid="ai-approval-needed" style={{ ...box, background: "var(--warnsoft, #FFF4D6)" }}>
               <b style={{ fontSize: 12.5 }}>실제 AI 호출은 관리자의 1건 승인이 필요합니다</b>
               <div style={{ fontSize: 12 }}>대상·모델·예산 상한을 지정해 승인하며, 한 번 쓰면 소멸합니다(자동 재시도·다음 문서 자동 분석 없음).{estimate.max_cost_per_request_usd != null ? ` 요청당 전역 상한 $${estimate.max_cost_per_request_usd}.` : ""}</div>
@@ -237,7 +257,7 @@ export default function AiPanel({ kind, targetId, title, buttonLabel, documentId
               ) : <div style={{ fontSize: 12, marginTop: 4 }}>관리자에게 이 대상의 호출 승인을 요청하세요.</div>}
             </div>
           )}
-          {me?.role === "admin" && estimate.approval_required && (
+          {!status?.paid_locked && me?.role === "admin" && estimate.approval_required && (
             <div style={{ margin: "6px 0" }}>
               <button className="tbtn" data-testid="ai-preflight" onClick={runPreflight}>첫 호출 사전 점검(유료 호출 없음)</button>
               {preflight && (
@@ -250,8 +270,8 @@ export default function AiPanel({ kind, targetId, title, buttonLabel, documentId
               )}
             </div>
           )}
-          {estimate.approval && <p data-testid="ai-approved" style={{ fontSize: 12, color: "var(--ok)" }}>승인됨: 예산 상한 ${estimate.approval.max_cost_usd} · {estimate.approval.expires_at.slice(0, 16).replace("T", " ")}까지 유효 · 1회용</p>}
-          <button className="tbtn primary" data-testid="ai-confirm" disabled={estimate.blockers.length > 0 || (estimate.approval_required && !estimate.approval)} onClick={() => execute(forceNext)}>예상 비용 확인 후 실행</button>{" "}
+          {!status?.paid_locked && estimate.approval && <p data-testid="ai-approved" style={{ fontSize: 12, color: "var(--ok)" }}>승인됨: 예산 상한 ${estimate.approval.max_cost_usd} · {estimate.approval.expires_at.slice(0, 16).replace("T", " ")}까지 유효 · 1회용</p>}
+          <button className="tbtn primary" data-testid="ai-confirm" disabled={estimate.blockers.length > 0 || (!status?.paid_locked && estimate.approval_required && !estimate.approval)} onClick={() => execute(forceNext)}>예상 비용 확인 후 실행</button>{" "}
           <button className="tbtn" onClick={() => setEstimate(null)}>닫기</button>
         </div>
       )}

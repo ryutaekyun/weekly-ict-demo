@@ -360,3 +360,55 @@ def test_long_title_wraps_at_word_boundaries():
     lines = out.split("\n")
     assert len(lines) >= 2 and "".join(lines).replace(" ", "") == "[시범]주간AI·ICT동향요약본(간결형)—개발용출력테스트"
     assert not any(l.startswith(" ") for l in lines)
+
+
+# ---------------------------------------------------------------- Phase 3-7: 후보주제 상세(이슈 요약·논쟁 가능성)·근거 추가/제외·분야 수정·추가 조사 필요 ----
+def test_candidate_detail_issue_summary_dispute_label_evidence_add_exclude_field_and_research_status(client, db_session):
+    make_user(db_session, "c37@example.com", UserRole.RESEARCHER)
+    h = auth_headers(client, "c37@example.com")
+    cluster, d1, d2 = _cluster_with_docs(db_session)
+    extra = make_doc(db_session, title="Extra evidence doc", field=FieldCode.AI, url="https://example.org/extra", days_ago=1)
+    cid = client.post("/candidates", headers=h, json={"field_code": "ai", "title": "후보 37", "source_document_id": str(d1.id)}).json()["id"]
+    detail = client.get(f"/candidates/{cid}", headers=h).json()
+    s = detail["issue_summary"]
+    assert s["issue_id"] == str(cluster.id) and s["document_count"] == 2 and s["dispute_status"] == "not_analyzed" and "논쟁으로 표시하지 않습니다" in s["dispute_note"]
+    assert detail["domestic_relevance_note"] and "평가 보류" in detail["domestic_relevance_note"]
+    assert {d["title"] for d in detail["related_documents"]} == {"Issue doc one", "Issue doc two"}
+    # 근거 원문 제외·복원(대표 근거는 제외 불가)·추가
+    assert client.post(f"/candidates/{cid}/evidence", headers=h, json={"document_id": str(d1.id), "action": "exclude"}).status_code == 409
+    ex = client.post(f"/candidates/{cid}/evidence", headers=h, json={"document_id": str(d2.id), "action": "exclude", "note": "관련성 낮음"}).json()
+    assert [d["title"] for d in ex["related_documents"]] == ["Issue doc one"] and [d["title"] for d in ex["excluded_documents"]] == ["Issue doc two"]
+    assert client.post(f"/candidates/{cid}/evidence", headers=h, json={"document_id": str(d2.id), "action": "restore"}).json()["excluded_documents"] == []
+    add = client.post(f"/candidates/{cid}/evidence", headers=h, json={"document_id": str(extra.id), "action": "add"}).json()
+    assert any(d["title"] == "Extra evidence doc" and d["added_by_researcher"] for d in add["related_documents"])
+    assert client.post(f"/candidates/{cid}/evidence", headers=h, json={"document_id": str(extra.id), "action": "add"}).status_code == 409
+    # 분야 수정·추가 조사 필요 상태·이력
+    assert client.patch(f"/candidates/{cid}", headers=h, json={"field_code": "sec", "status": "research", "title": "후보 37(수정)"}).status_code == 200
+    after = client.get(f"/candidates/{cid}", headers=h).json()
+    assert after["field_code"] == "sec" and after["status"] == "research" and after["title"] == "후보 37(수정)"
+    actions = [e["action"] for e in after["history"]]
+    assert "candidate.update" in actions and "candidate.evidence.exclude" in actions and "candidate.evidence.add" in actions
+
+
+def test_manuscript_lint_checks_values_roles_duplicates_and_never_changes_the_manuscript(client, db_session):
+    make_user(db_session, "lint37@example.com", UserRole.RESEARCHER)
+    h = auth_headers(client, "lint37@example.com")
+    ms = client.post("/manuscripts", headers=h, json={"manuscript_type": "key_issue", "title": "점검 원고"}).json()
+    body_text = "최종 규정은 2025.3.20.부터 시행됨. 준수 시한은 2025.2.18.임. 같은 문장이 반복됨. 같은 문장이 반복됨. 비용은 120억 원으로 추산됨."
+    doc = {"type": "doc", "content": [{"type": "paragraph", "content": [{"type": "text", "text": body_text}]}]}
+    saved = client.patch(f"/manuscripts/{ms['id']}", headers=h, json={"body_json": json.dumps(doc, ensure_ascii=False), "body": body_text, "lock_version": ms["lock_version"]}).json()
+    q = "The final rule takes effect on February 18, 2025. Manufacturers must comply by December 22, 2025."
+    for anchor, mark in (("최종 규정은 2025.3.20.부터 시행됨.", "m1"), ("준수 시한은 2025.2.18.임.", "m2")):
+        assert client.post(f"/manuscripts/{ms['id']}/footnotes", headers=h, json={"mark_id": mark, "anchor_text": anchor, "source_url": "https://example.org/fr", "excerpt": q}).status_code == 201
+    assert client.post(f"/manuscripts/{ms['id']}/footnotes", headers=h, json={"mark_id": "m3", "anchor_text": "발췌 없는 문장입니다.", "source_url": "https://example.org/fr"}).status_code == 201
+    out = client.get(f"/manuscripts/{ms['id']}/lint", headers=h).json()
+    kinds = [(w["type"], w["severity"]) for w in out["warnings"]]
+    assert ("value_mismatch", "error") in kinds  # 2025.3.20.은 발췌문에 없음
+    assert any(w["type"] == "semantic_risk" and "역할이 다름" in w["message"] for w in out["warnings"])  # 시행일 문장 vs 준수 시한 혼동
+    assert any(w["type"] == "duplicate_sentence" for w in out["warnings"]) and any(w["type"] == "duplicate_source" for w in out["warnings"])
+    assert any(w["type"] == "numeric_without_source" and "120억" in w["sentence"] for w in out["warnings"])
+    assert any(w["type"] == "no_excerpt" for w in out["warnings"]) and any(w["type"] == "unverified" for w in out["warnings"])
+    assert out["counts"]["error"] >= 1 and "자동으로 고치거나" in out["note"]
+    after = client.get(f"/manuscripts/{ms['id']}", headers=h).json()
+    assert after["body"] == body_text and after["lock_version"] == saved["lock_version"]  # 점검은 원고를 바꾸지 않는다
+    assert all(f["verification_status"] == "not_verified" for f in client.get(f"/manuscripts/{ms['id']}/footnotes", headers=h).json())

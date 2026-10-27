@@ -29,6 +29,7 @@
 | 원문 근거 기반 AI 분석(문서·이슈 심층분석·후보주제 제안·원고 초안 보조, 근거 검증, 연구원 검증, 비용·권한·재사용 통제) | **구현 완료 / 실제 AI 호출 미검증 (Phase 3-6)** — AI API 키가 없어 모의 응답으로만 pytest 241건·Playwright 32건을 통과했고(3-6.1에서 269건·36건으로 증가), 실제 LLM 호출·정확도는 검증하지 않았다(키 미설정 시 '설정 필요'만 표시, 가짜 결과 없음). AI는 후보 상태·기존 원고를 바꾸지 않으며 발췌문·날짜·수치를 서버가 원문과 대조한다. 상세는 `docs/PLATFORM_PLAN.md` §18 |
 | AI 분석·원고 집필 안정화(원문 변경 시 AI 삽입 문장 재검토, 의미 불일치 탐지, 삽입 위치 선택·취소, 공급자 오류 분류, 관리자 단가표·사용량·연결 진단, 실제 AI 검증 계획서) | **구현 완료 / 실제 AI 호출 미검증 (Phase 3-6.1)** — 모든 검증은 모의 응답·모의 HTTP이며 pytest 269건·Playwright 36건 통과. 실제 LLM 호출·정확도·실제 비용은 키와 비용 승인 후 `docs/AI_VALIDATION_PLAN.md`대로 검증해야 한다. 상세는 `docs/PLATFORM_PLAN.md` §19 |
 | 실제 Claude 연동 준비·소규모 검증환경(검증 계획 재점검, FMVSS 305a 3단계 비교 시나리오, 첫 실호출 관리자 1건 승인·예산 상한, 키 보호, 응답 스키마 검증, 품질 평가 체계, 관리자 설정 가이드) | **준비 완료 / 실제 AI 호출 미검증 (Phase 3-6.2A)** — 실제 호출은 하지 않았고 모의 검증으로 pytest 277건·Playwright 38건 통과. 설정은 `docs/AI_SETUP.md`, 검증 계획은 `docs/AI_VALIDATION_PLAN.md`, 상세는 `docs/PLATFORM_PLAN.md` §20 |
+| 무료 시연 전용 플랫폼(유료 AI 코드 수준 차단, 규칙 기반 분석 중심 흐름, 후보 상세·근거 추가/제외, 원문 작업대·작성 점검, 공개 대시보드, 시연 가이드, 로컬 실행 스크립트) | **구현·검증 완료 (Phase 3-7)** — 유료 AI는 사용하지 않으며 실제 LLM 분석 없음. 시연 방법은 `docs/DEMO_GUIDE.md`, 상세는 `docs/PLATFORM_PLAN.md` §22 |
 | HTML 파싱 수집기(Federal Register 외), 분야별 2곳 이상 확보, 실제 AI 모델 호출, HWPX 출력, 주간기술동향지·발간·배포 관리, 실제 메일 발송 | **미구현** (Phase 3-4 이후, `docs/PLATFORM_PLAN.md`의 로드맵 참고) |
 
 **Next.js 빌드/구동은 Phase 2-4에서 실제로 검증 완료**(winget으로 Node.js를 직접 설치해 빌드·실행·브라우저 테스트까지 수행, `docs/PLATFORM_PLAN.md` §10 참고). **Docker Compose 전체 스택만 사용자 환경에서 처음 실행·검증이 필요**하다(PostgreSQL 통합 자체는 GitHub Actions CI로 검증됨).

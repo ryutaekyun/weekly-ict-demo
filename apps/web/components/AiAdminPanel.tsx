@@ -41,14 +41,15 @@ export default function AiAdminPanel({ isAdmin }: { isAdmin: boolean }) {
 
   return (
     <section className="panel" style={{ marginBottom: 16 }} data-testid="ai-admin-panel">
-      <h2 style={{ fontSize: 14, margin: "0 0 10px" }}>AI 분석 설정·사용량</h2>
+      <h2 style={{ fontSize: 14, margin: "0 0 10px" }}>분석 기능 상태·사용량</h2>
       {status && (
         <p style={{ fontSize: 13, margin: "0 0 8px" }} data-testid="ai-conn-status">
           상태: <b>{status.configured ? `${status.provider} / ${status.model}` : "AI 설정 필요"}</b> · <span className="pill hold">{CONN_LABEL[status.connection] ?? status.connection}</span>
           <span style={{ display: "block", fontSize: 12, color: "var(--ink-muted)" }}>{status.connection_note}{status.config_gaps.length > 0 ? ` (${status.config_gaps.join("; ")})` : ""}</span>
         </p>
       )}
-      {isAdmin && <p style={{ margin: "0 0 8px" }}><button className="tbtn" data-testid="ai-diagnose" onClick={runDiag}>연결 진단(모델 목록 조회, 토큰 사용 없음)</button></p>}
+      {status?.paid_locked && <p data-testid="ai-paid-locked" style={{ fontSize: 12.5, margin: "0 0 8px" }}><b>무료 시연 버전</b> — 유료 외부 AI(Anthropic·OpenAI) 연결·진단·호출 승인·단가 설정은 코드 수준으로 비활성화되어 있으며 환경변수나 이 화면으로 켤 수 없습니다.</p>}
+      {isAdmin && !status?.paid_locked && <p style={{ margin: "0 0 8px" }}><button className="tbtn" data-testid="ai-diagnose" onClick={runDiag}>연결 진단(모델 목록 조회, 토큰 사용 없음)</button></p>}
       {diag && <p role="status" data-testid="ai-diag-result" style={{ fontSize: 12.5, color: diag.verified ? "var(--ok)" : "var(--warn)" }}>{diag.verified ? "확인됨" : "미검증"} — {diag.message}</p>}
       {usage && (
         <p style={{ fontSize: 12.5, margin: "8px 0" }} data-testid="ai-usage">
@@ -57,8 +58,8 @@ export default function AiAdminPanel({ isAdmin }: { isAdmin: boolean }) {
           <span style={{ display: "block", color: "var(--ink-muted)" }}>{usage.cost_note}</span>
         </p>
       )}
-      <h3 style={{ fontSize: 13, margin: "10px 0 4px" }}>제공자·모델별 단가표 (USD/100만 토큰, 관리자 갱신)</h3>
-      <table style={{ fontSize: 12.5, borderCollapse: "collapse", width: "100%" }} data-testid="ai-price-table">
+      {!status?.paid_locked && <h3 style={{ fontSize: 13, margin: "10px 0 4px" }}>제공자·모델별 단가표 (USD/100만 토큰, 관리자 갱신)</h3>}
+      {!status?.paid_locked && <table style={{ fontSize: 12.5, borderCollapse: "collapse", width: "100%" }} data-testid="ai-price-table">
         <thead><tr style={{ textAlign: "left" }}><th>제공자</th><th>모델</th><th>입력</th><th>출력</th><th>기준일</th><th>버전</th><th>상태</th><th>출처</th></tr></thead>
         <tbody>
           {prices.map((p) => (
@@ -68,8 +69,8 @@ export default function AiAdminPanel({ isAdmin }: { isAdmin: boolean }) {
           ))}
           {prices.length === 0 && <tr><td colSpan={8} style={{ color: "var(--ink-muted)" }}>등록된 단가가 없습니다 — 단가가 없으면 비용은 &lsquo;계산 불가&rsquo;로 표시되며 0원으로 간주하지 않습니다.</td></tr>}
         </tbody>
-      </table>
-      {isAdmin && (
+      </table>}
+      {isAdmin && !status?.paid_locked && (
         <form onSubmit={savePrice} style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
           <select aria-label="제공자" value={form.provider} onChange={(e) => setForm({ ...form, provider: e.target.value })} style={inp}><option>anthropic</option><option>openai</option></select>
           <input aria-label="모델 ID" placeholder="정확한 모델 ID" value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} style={inp} required />
@@ -81,8 +82,8 @@ export default function AiAdminPanel({ isAdmin }: { isAdmin: boolean }) {
         </form>
       )}
       {msg && <p role="status" style={{ fontSize: 12.5 }}>{msg}</p>}
-      {status && <p style={{ fontSize: 12, margin: "8px 0" }} data-testid="ai-gate-status">첫 실호출 안전장치: {status.require_approval ? "관리자 1건 승인 필수(승인 1회용·자동 재시도 금지)" : "승인 불필요(모의 공급자이거나 AI_REQUIRE_APPROVAL=0)"}{status.max_cost_per_request_usd != null ? ` · 요청당 상한 $${status.max_cost_per_request_usd}` : ""}</p>}
-      {isAdmin && approvals.length > 0 && (
+      {status && !status.paid_locked && <p style={{ fontSize: 12, margin: "8px 0" }} data-testid="ai-gate-status">첫 실호출 안전장치: {status.require_approval ? "관리자 1건 승인 필수(승인 1회용·자동 재시도 금지)" : "승인 불필요(모의 공급자이거나 AI_REQUIRE_APPROVAL=0)"}{status.max_cost_per_request_usd != null ? ` · 요청당 상한 $${status.max_cost_per_request_usd}` : ""}</p>}
+      {isAdmin && !status?.paid_locked && approvals.length > 0 && (
         <details style={{ fontSize: 12.5, marginTop: 6 }}>
           <summary>호출 승인 내역 {approvals.length}건</summary>
           {approvals.map((a) => (

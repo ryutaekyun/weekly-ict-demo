@@ -79,6 +79,10 @@ def _ai_approval_off_by_default(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _paid_lock_open_for_tests(monkeypatch):
-    """테스트는 가짜 HTTP·가짜 공급자만 쓰므로 유료 잠금을 연다. 잠금 자체는 test_ai_phase362.py가 따로 검증한다."""
-    monkeypatch.setenv("AI_ALLOW_PAID", "1")
+def _paid_lock_open_for_tests(request, monkeypatch):
+    """공급자 코드 단위 테스트는 가짜 HTTP만 쓰므로 코드 수준 차단 상수를 이 테스트에서만 연다(@pytest.mark.paid_locked 테스트는 제외).
+    차단 자체는 tests/test_free_demo_lock.py가 검증한다."""
+    if request.node.get_closest_marker("paid_locked") is None and "test_free_demo_lock" not in request.node.nodeid:
+        from app.services import ai_service
+
+        monkeypatch.setattr(ai_service, "PAID_AI_DISABLED", False)

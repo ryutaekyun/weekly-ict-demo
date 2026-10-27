@@ -168,6 +168,18 @@ def update_manuscript_body(
     return _detail_out(db, manuscript)
 
 
+@router.get("/{manuscript_id}/lint")
+def lint_manuscript(
+    manuscript_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """무료 규칙 기반 작성 점검 — 근거 일치·날짜 역할·수치·중복 경고(원고를 바꾸지 않음)."""
+    from app.services import manuscript_lint
+
+    return manuscript_lint.lint(db, _get_manuscript_or_404(db, manuscript_id))
+
+
 @router.get("/{manuscript_id}/versions", response_model=list[ManuscriptVersionListItemOut])
 def list_versions(
     manuscript_id: uuid.UUID,

@@ -52,6 +52,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:8px 10px;
     <a href="#/issues" data-nav="issues">핵심 이슈</a>
     <a href="#/candidates" data-nav="candidates">후보주제</a>
     <a href="#/outputs" data-nav="outputs">시범 출력물</a>
+    <a href="#/guide" data-nav="guide">시연 가이드</a>
     <a href="#/about" data-nav="about">시연 범위</a>
   </nav>
 </header>
@@ -104,8 +105,33 @@ function viewHome() {
     <div class="note">${f.count ? "관련 자료 보기" : "수집된 자료 없음 — 다른 분야로 채우지 않았습니다"}</div></a>`).join("")}</div>
   <div class="panel" style="margin-top:14px"><b>둘러보기 흐름</b>
   <p class="note" style="margin:6px 0 0">분야 선택 → 뉴스·정책자료 카드 → 제목 클릭 시 공식 원문(새 탭) / '상세 보기'는 이 화면 안의 상세 → 관련 이슈 → 후보주제</p></div>
-  <div class="grid" style="margin-top:10px"><div class="tile"><div>수집·분류된 자료</div><div class="n">${S.meta.document_count}</div></div>
-  <div class="tile"><div>핵심 이슈</div><div class="n">${S.meta.issue_count}</div></div><div class="tile"><div>후보주제(내부 검토 상태)</div><div class="n">${S.meta.candidate_count}</div></div></div>`;
+  <div class="grid" style="margin-top:10px"><div class="tile"><div>수집·분류된 자료</div><div class="n" data-testid="total-docs">${S.meta.document_count}</div></div>
+  <div class="tile"><div>핵심 이슈(복수 문서 ${S.dashboard ? S.dashboard.multi_document_issues : "-"}건)</div><div class="n">${S.meta.issue_count}</div></div><div class="tile"><div>후보주제(내부 검토 상태)</div><div class="n">${S.meta.candidate_count}</div></div>
+  <div class="tile"><div>원문 전문 확보 자료</div><div class="n">${S.dashboard ? S.dashboard.with_original_text : "-"}</div></div></div>${dashPanels()}`;
+}
+
+function bars(rows, total) {
+  return rows.map((r) => `<div style="display:flex;gap:8px;align-items:center;font-size:12.5px;margin:3px 0"><span style="width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(r.name)}">${esc(r.name)}</span>
+    <span style="flex:1;background:var(--idlesoft);border-radius:6px;height:10px"><span style="display:block;height:10px;border-radius:6px;background:var(--navy2);width:${Math.max(2, Math.round((r.count / total) * 100))}%"></span></span><b style="width:36px;text-align:right">${r.count}</b></div>`).join("");
+}
+function dashPanels() {
+  const d = S.dashboard;
+  if (!d) return "";
+  const tot = S.meta.document_count || 1;
+  return `<div class="panel" style="margin-top:12px" data-testid="collection-status"><b>수집·분류 현황</b> <span class="note">(수집 시점 스냅샷 · 기준일 ${esc(S.meta.generated_at.slice(0, 10))})</span>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-top:8px">
+      <div><div class="note">발행기관별(상위)</div>${bars(d.by_org, tot)}</div><div><div class="note">자료 유형별</div>${bars(d.by_type, tot)}</div><div><div class="note">국가·지역별</div>${bars(d.by_country, tot)}</div></div>
+    <p class="note" style="margin:8px 0 0">분류 방식: ${esc(d.classification_method)}. 이 화면의 숫자는 스냅샷 데이터에서 직접 센 값이며 실시간 수집 결과가 아닙니다.</p></div>`;
+}
+
+function viewGuide() {
+  setActive("guide");
+  const f = (c) => `#/news?field=${c}`;
+  $("#app").innerHTML = `<h1>시연 가이드 (공개 읽기 전용 화면)</h1><p class="sub">아래 순서대로 누르면 실제 수집 자료를 따라가며 둘러볼 수 있습니다. 이 화면은 조회 전용이며 저장·로그인·생성 기능은 로컬 통합 사이트에서만 동작합니다.</p>
+  <div class="panel"><b>시나리오 A — 통신·방송·전파 정책동향</b><ol><li><a href="${f("bcast")}">방송·전파·위성 분야 열기</a> → FCC 등 공식 기관 자료 목록</li><li>카드 제목 클릭 → <b>공식 원문이 새 탭</b>으로 열림</li><li>'상세 보기' → 관련 이슈 → 후보주제의 추천 점수·산정 근거 확인</li></ol></div>
+  <div class="panel"><b>시나리오 B — 기술·연구 동향 탐색</b><ol><li><a href="${f("ai")}">인공지능·데이터 분야 열기</a> → 검색창에 키워드 입력 후 정렬·기간 필터 적용</li><li>'상세 보기' → 같은 이슈의 관련 문서 비교</li><li><a href="#/candidates?field=ai">후보주제 목록</a>에서 점수·논쟁 가능성·검토 상태 확인</li></ol></div>
+  <div class="panel"><b>시나리오 C — 시범 보고서·카드뉴스 결과 보기</b><ol><li><a href="#/outputs">시범 출력물</a>에서 후속 규정 반영 일반호(PDF·DOCX)와 카드뉴스(PPTX·PNG) 열기</li><li>모든 출력물은 <b>시범·내부용·IITP 미확인</b> 표시가 붙은 자료이며 실제 발간물이 아닙니다.</li></ol></div>
+  <p class="note">후보주제 수정·원고 작성·보고서 생성은 로컬 통합 사이트에서 직접 해볼 수 있습니다(저장소 docs/DEMO_GUIDE.md 참고).</p>`;
 }
 
 function viewNews(q) {
@@ -213,7 +239,10 @@ function viewCandidate(id) {
   if (!c) return ($("#app").innerHTML = `<div class="panel empty">후보주제를 찾을 수 없습니다.</div>`);
   $("#app").innerHTML = `<p><a href="javascript:history.back()">← 이전 화면(검색 조건 유지)</a></p><h1>${esc(c.title)}</h1>
   <p class="sub">${esc(fieldLabel(c.field))} · ${esc(c.org || "-")} · 발표 ${esc(c.announced || "-")} · <span class="pill">내부 검토 상태: ${esc(c.internal_status)}</span> <span class="note">(IITP 공식 선정 아님)</span></p>
-  <div class="panel"><b>규칙 기반 추천</b><p>${esc(c.reason || "-")}${c.score_partial ? " — 일부 항목은 근거 부족으로 평가 보류(부분 평가 점수)" : ""}</p></div>
+  <div class="panel"><b>규칙 기반 추천</b> <span class="note">(생성형 AI가 아닌 키워드·규칙 계산 · 연구원 검토 필요)</span><p>${esc(c.reason || "-")}${c.score_partial ? " — 일부 항목은 근거 부족으로 평가 보류(부분 평가 점수)" : ""}</p>
+    <p><b>추천 점수</b> ${c.score ?? "-"}점 · <b>논쟁 가능성</b> <span class="pill ${c.dispute === "의견 대립 확인됨" ? "bad" : ""}" data-testid="dispute-label">${esc(c.dispute || "분석 전")}</span>${c.dispute_count ? ` (쟁점 ${c.dispute_count}건)` : ""}
+    <span class="note">— 서로 다른 문서에서 상반된 주장이 규칙으로 확인된 경우에만 '의견 대립'으로 표시합니다.</span></p>
+    ${c.breakdown && c.breakdown.length ? `<table data-testid="score-breakdown"><thead><tr><th>평가 기준</th><th>점수</th><th>산정 근거</th></tr></thead><tbody>${c.breakdown.map((b) => `<tr><td>${esc(b.criterion)}</td><td>${b.score ?? '<span class="pill warn">평가 보류</span>'}</td><td>${esc(b.note || (b.score == null ? "근거 자료가 없어 점수를 주지 않음" : "-"))}</td></tr>`).join("")}</tbody></table>` : ""}</div>
   <div class="panel"><b>근거 원문 (${c.document_ids.length}건)</b>${c.document_ids.map((id2) => { const d = byId.doc.get(id2); return d ? `<div class="card">${link(d)}<div class="meta"><span>${esc(d.org || "-")}</span><span>${esc(d.published || "-")}</span>
     <a href="#/doc/${d.id}">상세 보기</a></div></div>` : ""; }).join("") || `<p class="note">연결된 원문이 없습니다.</p>`}</div>
   <p><a href="#/issue/${c.issue_id}">관련 핵심 이슈 보기 →</a></p>`;
@@ -251,6 +280,7 @@ function route() {
   if (a === "candidate") return viewCandidate(b);
   if (a === "outputs") return viewOutputs();
   if (a === "about") return viewAbout();
+  if (a === "guide") return viewGuide();
   return viewHome();
 }
 

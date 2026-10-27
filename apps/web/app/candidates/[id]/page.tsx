@@ -1,5 +1,6 @@
 "use client";
 
+import { changeCandidateEvidence, listDocuments } from "@/lib/api";
 import AiPanel from "@/components/AiPanel";
 import { useEffect, useState } from "react";
 import Link from "next/link";
@@ -38,6 +39,9 @@ export default function CandidateDetailPage() {
   const [editReason, setEditReason] = useState("");
   const [editSummary, setEditSummary] = useState("");
   const [editAssignee, setEditAssignee] = useState("");
+  const [editField, setEditField] = useState("");
+  const [evSearch, setEvSearch] = useState("");
+  const [evResults, setEvResults] = useState<{ id: string; title: string; source_org_name: string | null; published_at: string | null }[]>([]);
   const [users, setUsers] = useState<UserSummary[]>([]);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const [startingManuscript, setStartingManuscript] = useState(false);
@@ -51,6 +55,7 @@ export default function CandidateDetailPage() {
         setEditReason(c.recommended_reason ?? "");
         setEditSummary(c.summary ?? "");
         setEditAssignee(c.assignee_user_id ?? "");
+        setEditField(c.field_code);
       })
       .catch((err) => {
         if (err instanceof UnauthorizedError) { router.push("/login"); return; }
@@ -88,11 +93,33 @@ export default function CandidateDetailPage() {
     e.preventDefault();
     setSaveMsg(null);
     try {
-      await updateCandidate(params.id, { title: editTitle, summary: editSummary, recommended_reason: editReason, assignee_user_id: editAssignee || null });
+      await updateCandidate(params.id, { field_code: editField, title: editTitle, summary: editSummary, recommended_reason: editReason, assignee_user_id: editAssignee || null });
       setSaveMsg("저장되었습니다");
       load();
     } catch (err) {
       setSaveMsg(err instanceof Error ? `저장 실패: ${err.message}` : "저장 실패");
+    }
+  }
+
+  async function evidence(documentId: string, action: "add" | "exclude" | "restore") {
+    setSaveMsg(null);
+    try {
+      await changeCandidateEvidence(params.id, documentId, action);
+      setSaveMsg(action === "add" ? "근거 원문을 추가했습니다" : action === "exclude" ? "근거에서 제외했습니다(복원할 수 있습니다)" : "근거 원문을 복원했습니다");
+      setEvResults([]);
+      load();
+    } catch (err) {
+      setSaveMsg(err instanceof Error ? `근거 변경 실패: ${err.message}` : "근거 변경 실패");
+    }
+  }
+
+  async function searchEvidence() {
+    if (!evSearch.trim()) return;
+    try {
+      const r = await listDocuments({ q: evSearch.trim(), page: 1, page_size: 8 });
+      setEvResults(r.items.map((d) => ({ id: d.id, title: d.title, source_org_name: d.source_org_name, published_at: d.published_at })));
+    } catch (err) {
+      setSaveMsg(err instanceof Error ? `검색 실패: ${err.message}` : "검색 실패");
     }
   }
 
@@ -162,6 +189,18 @@ export default function CandidateDetailPage() {
       <section className="panel" style={{ marginBottom: 16 }}>
         <h2 style={{ fontSize: 14, margin: "0 0 10px" }}>근거 원문·관련 뉴스 ({candidate.related_documents.length}건)</h2>
         {candidate.related_documents.length === 0 && <p style={{ color: "var(--ink-muted)", fontSize: 13 }}>연결된 근거 원문이 없습니다. 근거 문서가 있는 이슈에서 후보주제를 만들면 자동으로 연결됩니다.</p>}
+        <div style={{ display: "flex", gap: 6, margin: "0 0 8px", flexWrap: "wrap" }}>
+          <input aria-label="근거로 추가할 원문 검색" placeholder="근거로 추가할 원문 제목·키워드 검색" value={evSearch} onChange={(e) => setEvSearch(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); searchEvidence(); } }} style={{ ...inp, minWidth: 260 }} />
+          <button className="tbtn" type="button" data-testid="evidence-search" onClick={searchEvidence}>원문 검색</button>
+        </div>
+        {evResults.length > 0 && (
+          <ul data-testid="evidence-results" style={{ margin: "0 0 8px", paddingLeft: 0, listStyle: "none", fontSize: 12.5 }}>
+            {evResults.map((r) => (
+              <li key={r.id} style={{ padding: "4px 0", borderTop: "1px solid var(--border)" }}>{r.title} <span style={{ color: "var(--ink-muted)" }}>· {r.source_org_name ?? ""} · {fmtDate(r.published_at)}</span>
+                <button className="tbtn" style={{ marginLeft: 6 }} onClick={() => evidence(r.id, "add")}>근거에 추가</button></li>
+            ))}
+          </ul>
+        )}
         <ul style={{ margin: 0, paddingLeft: 0, listStyle: "none", fontSize: 13 }}>
           {candidate.related_documents.map((d) => (
             <li key={d.document_id} style={{ padding: "8px 0", borderTop: "1px solid var(--border)" }}>
@@ -169,15 +208,24 @@ export default function CandidateDetailPage() {
               <OriginalLink url={d.origin_url} state={d.link_state} blocked={d.link_blocked} note={d.link_note} isPdf={d.is_pdf} testId="related-link">{d.title}</OriginalLink>
               <span style={{ color: "var(--ink-muted)", marginLeft: 8 }}>{d.org ?? ""} {d.country_code ? `· ${d.country_code}` : ""} · {fmtDate(d.published_at)}</span>
               <Link className="tbtn" style={{ marginLeft: 8 }} href={`/documents/${d.document_id}`} aria-label={`상세 분석: ${d.title}`}>상세 분석</Link>
+              {d.added_by_researcher && <span className="pill navy" style={{ marginLeft: 6 }}>연구원이 추가</span>}
+              {!d.is_primary && <button className="tbtn" style={{ marginLeft: 6 }} data-testid="evidence-exclude" onClick={() => evidence(d.document_id, "exclude")}>근거에서 제외</button>}
             </li>
           ))}
         </ul>
+        {candidate.excluded_documents.length > 0 && (
+          <div data-testid="excluded-docs" style={{ marginTop: 8, fontSize: 12.5, color: "var(--ink-muted)" }}>
+            제외한 원문: {candidate.excluded_documents.map((d) => (
+              <span key={d.document_id} style={{ marginRight: 8 }}>{d.title.slice(0, 40)} <button className="tbtn" onClick={() => evidence(d.document_id, "restore")}>복원</button></span>
+            ))}
+          </div>
+        )}
       </section>
 
       {score ? (
         <section className="panel" style={{ marginBottom: 16 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <h2 style={{ fontSize: 14, margin: 0 }}>AI 추천 평가 ({METHOD_LABELS[score.method] ?? score.method})</h2>
+            <h2 style={{ fontSize: 14, margin: 0 }}>규칙 기반 추천 평가 ({METHOD_LABELS[score.method] ?? score.method}) — 연구원 검토 필요</h2>
             <div style={{ fontSize: 22, fontWeight: 700 }}>
               {score.total_score !== null ? score.total_score.toFixed(1) : "-"}점
               {isPartialScore && <span style={{ fontSize: 11, color: "var(--warn)", marginLeft: 6, fontWeight: 400 }}>부분 평가점수</span>}
@@ -208,6 +256,31 @@ export default function CandidateDetailPage() {
         </section>
       )}
 
+      {candidate.domestic_relevance_note && <p data-testid="domestic-note" style={{ fontSize: 12.5, color: "var(--warn)", margin: "-8px 0 16px" }}>{candidate.domestic_relevance_note}</p>}
+
+      {candidate.issue_summary && (
+        <section className="panel" style={{ marginBottom: 16 }} data-testid="issue-summary">
+          <h2 style={{ fontSize: 14, margin: "0 0 8px" }}>핵심 이슈·발표 시점·후속 동향 (규칙 기반 분석)</h2>
+          <p style={{ fontSize: 13, margin: "0 0 6px" }}>
+            <Link href={`/issues/${candidate.issue_summary.issue_id}`}>{candidate.issue_summary.title}</Link> · 묶인 원문 {candidate.issue_summary.document_count}건 ·
+            최초 {candidate.issue_summary.first_published ?? "-"} · 최근 {candidate.issue_summary.latest_activity ?? "-"} · 후속 동향 {candidate.issue_summary.followup_count}건
+            {candidate.issue_summary.needs_cluster_review && <span className="pill hold" style={{ marginLeft: 6 }}>이슈 묶음 검토 대기</span>}
+          </p>
+          {candidate.issue_summary.key_summary && <p style={{ fontSize: 13, margin: "0 0 6px" }}>{candidate.issue_summary.key_summary}</p>}
+          <p style={{ fontSize: 13, margin: "0 0 6px" }} data-testid="dispute-label"><b>논쟁 가능성</b>: <span className={`pill ${candidate.issue_summary.dispute_status === "disputes_found" ? "review" : "hold"}`}>{candidate.issue_summary.dispute_label}</span>
+            {candidate.issue_summary.dispute_count > 0 && ` (쟁점 ${candidate.issue_summary.dispute_count}건)`}
+            <span style={{ display: "block", fontSize: 12, color: "var(--ink-muted)" }}>{candidate.issue_summary.dispute_note}</span></p>
+          {candidate.issue_summary.timeline.length > 0 && (
+            <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12.5 }}>
+              {candidate.issue_summary.timeline.map((e, i) => (
+                <li key={i}>{e.date ?? "날짜 미상"} · {({ new_issue: "신규", additional_announcement: "추가 발표", substantive_change: "실질 변경", follow_up_action: "후속 조치", no_substantive_change: "변화 없음", insufficient_comparison_data: "비교 자료 부족" } as Record<string, string>)[e.type] ?? e.type}
+                  {e.label ? `(${e.label})` : ""} · <Link href={`/documents/${e.document_id}`}>{e.title ?? "문서"}</Link></li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+
       {candidate.issue_cluster_id && (
         <AiPanel kind="candidate" targetId={candidate.issue_cluster_id} title="AI 후보주제 제안 — 기존 규칙 기반 추천 근거와 비교" buttonLabel="AI 후보주제 제안" testId="ai-panel-candidate"
           existingCandidates={[{ id: candidate.id, title: candidate.title }]} />
@@ -216,6 +289,9 @@ export default function CandidateDetailPage() {
       <section className="panel" style={{ marginBottom: 16 }}>
         <h2 style={{ fontSize: 14, margin: "0 0 10px" }}>제목·설명·담당자·추천 근거 수정</h2>
         <form onSubmit={saveEdits} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <select aria-label="후보주제 관련 분야" value={editField} onChange={(e) => setEditField(e.target.value)} style={inp}>
+            {Object.entries(FIELD_LABELS).map(([c, l]) => <option key={c} value={c}>{l}</option>)}
+          </select>
           <input aria-label="후보주제 제목" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} style={inp} placeholder="제목" />
           <textarea aria-label="후보주제 설명" value={editSummary} onChange={(e) => setEditSummary(e.target.value)} style={{ ...inp, minHeight: 60 }} placeholder="설명" />
           <select aria-label="검토 담당자" value={editAssignee} onChange={(e) => setEditAssignee(e.target.value)} style={inp}>
