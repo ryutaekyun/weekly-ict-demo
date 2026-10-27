@@ -21,6 +21,7 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.models.ai_analysis import AIAnalysis, AIClaim
 from app.models.candidate import Candidate
 from app.models.candidate_scoring import CandidateRecommendationScore
 from app.models.document_classification import DocumentClassification
@@ -129,6 +130,7 @@ def build_snapshot(db: Session) -> dict:
             "document_ids": [m["id"] for i in issues_out if i["id"] == str(c.issue_cluster_id) for m in i["documents"]],
         })
 
+    ai_out = _approved_ai_results(db, included_ids, issue_set)
     counts = {code: sum(1 for d in docs_out if d["field"] == code) for code in FIELD_LABELS}
     snapshot = {
         "meta": {
@@ -142,10 +144,35 @@ def build_snapshot(db: Session) -> dict:
         "fields": [{"code": code, "label": label, "count": counts[code]} for code, label in FIELD_LABELS.items()],
         "doc_types": DOC_TYPE_LABELS,
         "documents": docs_out, "issues": issues_out, "candidates": cands_out,
+        "ai_results": ai_out,  # 연구원이 모두 검증하고 승인권자가 공개 승인한 결과만(없으면 빈 목록)
     }
     snapshot = _scrub(snapshot)
     assert_no_personal_data(snapshot)
     return snapshot
+
+
+def _approved_ai_results(db: Session, doc_ids: set, issue_ids: set[str]) -> list[dict]:
+    """공개 승인된 AI 분석만 내보낸다 — 모의 응답·미검증·반려 문장 제외, 원문 발췌는 짧게(300자) 자르고 전문은 싣지 않는다.
+    미리 만든 결과이므로 '사전 생성·연구원 검토 후 공개 승인' 표시를 함께 담는다(실시간 AI 아님)."""
+    out = []
+    for a in db.scalars(select(AIAnalysis).where(AIAnalysis.public_approved_at.is_not(None), AIAnalysis.is_mock.is_(False), AIAnalysis.status == "completed")).all():
+        if a.verification_status != "researcher_verified":
+            continue
+        if a.target_type == "document" and a.target_id not in doc_ids:
+            continue
+        if a.target_type == "issue" and str(a.target_id) not in issue_ids:
+            continue
+        claims = []
+        for c in db.scalars(select(AIClaim).where(AIClaim.analysis_id == a.id).order_by(AIClaim.section_key, AIClaim.seq)).all():
+            if c.researcher_status != "verified":
+                continue
+            evs = [{"document_id": e.get("document_id"), "url": e.get("url"), "quote": (e.get("quote") or "")[:300], "location": e.get("location")}
+                   for e in json.loads(c.evidence_json or "[]") if e.get("found")]
+            claims.append({"section": c.section_key, "type": c.claim_type, "text": c.text, "evidence": evs})
+        out.append({"id": str(a.id), "kind": a.kind, "target_type": a.target_type, "target_id": str(a.target_id), "model": a.model,
+                    "generated_at": a.finished_at.date().isoformat() if a.finished_at else None, "claims": claims,
+                    "label": "사전 생성한 AI 분석 — 연구원이 문장별로 원문 근거를 확인하고 공개를 승인한 결과이며 실시간 AI 분석이 아닙니다"})
+    return out
 
 
 def main() -> None:

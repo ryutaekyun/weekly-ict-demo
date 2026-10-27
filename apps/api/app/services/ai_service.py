@@ -34,13 +34,15 @@ class AIResult:
     provider: str
     model: str
     text: str
+    input_tokens: int = 0  # 공급자가 돌려준 실제 사용량(모의·미보고 시 0)
+    output_tokens: int = 0
 
 
 class AIProvider(Protocol):
     name: str
     model: str
 
-    def complete_json(self, system_prompt: str, user_prompt: str) -> AIResult: ...
+    def complete_json(self, system_prompt: str, user_prompt: str, max_tokens: int = 2000) -> AIResult: ...
 
 
 class AnthropicProvider:
@@ -50,7 +52,7 @@ class AnthropicProvider:
         self.api_key = api_key
         self.model = model
 
-    def complete_json(self, system_prompt: str, user_prompt: str) -> AIResult:
+    def complete_json(self, system_prompt: str, user_prompt: str, max_tokens: int = 2000) -> AIResult:
         try:
             resp = httpx.post(
                 "https://api.anthropic.com/v1/messages",
@@ -61,7 +63,7 @@ class AnthropicProvider:
                 },
                 json={
                     "model": self.model,
-                    "max_tokens": 2000,
+                    "max_tokens": max_tokens,
                     "system": system_prompt,
                     "messages": [{"role": "user", "content": user_prompt}],
                 },
@@ -70,9 +72,11 @@ class AnthropicProvider:
             resp.raise_for_status()
             data = resp.json()
             text = "".join(block.get("text", "") for block in data.get("content", []))
+            usage = data.get("usage", {}) or {}
         except httpx.HTTPError as exc:
             raise AIServiceError(f"Anthropic API 호출 실패: {exc}") from exc
-        return AIResult(provider=self.name, model=self.model, text=text)
+        return AIResult(provider=self.name, model=self.model, text=text,
+                        input_tokens=int(usage.get("input_tokens", 0) or 0), output_tokens=int(usage.get("output_tokens", 0) or 0))
 
 
 class OpenAIProvider:
@@ -82,7 +86,7 @@ class OpenAIProvider:
         self.api_key = api_key
         self.model = model
 
-    def complete_json(self, system_prompt: str, user_prompt: str) -> AIResult:
+    def complete_json(self, system_prompt: str, user_prompt: str, max_tokens: int = 2000) -> AIResult:
         try:
             resp = httpx.post(
                 "https://api.openai.com/v1/chat/completions",
@@ -94,15 +98,18 @@ class OpenAIProvider:
                         {"role": "user", "content": user_prompt},
                     ],
                     "response_format": {"type": "json_object"},
+                    "max_tokens": max_tokens,
                 },
                 timeout=REQUEST_TIMEOUT_SECONDS,
             )
             resp.raise_for_status()
             data = resp.json()
             text = data["choices"][0]["message"]["content"]
+            usage = data.get("usage", {}) or {}
         except (httpx.HTTPError, KeyError, IndexError) as exc:
             raise AIServiceError(f"OpenAI API 호출 실패: {exc}") from exc
-        return AIResult(provider=self.name, model=self.model, text=text)
+        return AIResult(provider=self.name, model=self.model, text=text,
+                        input_tokens=int(usage.get("prompt_tokens", 0) or 0), output_tokens=int(usage.get("completion_tokens", 0) or 0))
 
 
 _DEFAULT_MODELS = {
@@ -117,6 +124,13 @@ def get_ai_provider() -> AIProvider | None:
     if not provider_name:
         return None
     model = os.environ.get(AI_MODEL_ENV, "").strip() or _DEFAULT_MODELS.get(provider_name)
+    if provider_name == "mock":
+        # 개발·자동 테스트 전용 — 실제 AI가 아니다. AI_ALLOW_MOCK=1을 함께 지정해야만 켜지며 결과에 '모의 응답'이 표시된다.
+        if os.environ.get("AI_ALLOW_MOCK", "").strip() != "1":
+            return None
+        from app.services.ai_mock import MockProvider
+
+        return MockProvider()
     if provider_name == "anthropic":
         key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
         if not key:
@@ -172,3 +186,25 @@ def extract_json_object(raw_text: str) -> dict:
         return json.loads(text[start : end + 1])
     except json.JSONDecodeError as exc:
         raise AIServiceError(f"AI 응답 JSON 파싱 실패: {exc}") from exc
+
+
+# 토큰 단가(USD/100만 토큰) — 공개 요금표가 바뀔 수 있으므로 '추정'으로만 쓰고 환경변수로 덮어쓸 수 있다.
+_DEFAULT_PRICES = {"anthropic": (3.0, 15.0), "openai": (0.15, 0.6), "mock": (0.0, 0.0)}
+
+
+def price_per_mtok(provider: str) -> tuple[float, float]:
+    base = _DEFAULT_PRICES.get(provider, (3.0, 15.0))
+    try:
+        return (float(os.environ.get("AI_PRICE_IN_PER_MTOK", base[0])), float(os.environ.get("AI_PRICE_OUT_PER_MTOK", base[1])))
+    except ValueError:
+        return base
+
+
+def estimate_tokens(chars: int) -> int:
+    """문자 수로 토큰을 거칠게 추정한다(한글·영문 혼합 기준 약 2.5자/토큰, 보수적으로 크게 잡음)."""
+    return int(chars / 2.5) + 1
+
+
+def estimate_cost_usd(provider: str, input_tokens: int, output_tokens: int) -> float:
+    pin, pout = price_per_mtok(provider)
+    return round(input_tokens * pin / 1_000_000 + output_tokens * pout / 1_000_000, 4)

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import OriginalLink from "@/components/OriginalLink";
+import AiPanel from "@/components/AiPanel";
 import {
   checkDocumentLink,
   getDocumentAnalysis,
@@ -187,6 +188,8 @@ export default function DocumentDetailPage() {
           )}
         </form>
       </section>
+
+      <AiPanel kind="document" targetId={params.id} title="AI 분석 (원문 근거 기반 · 규칙 기반 결과와 별도 보존)" buttonLabel="AI 분석 요청" testId="ai-panel-document" />
 
       {analysis?.structured_extract && (
         <section className="panel" style={{ marginBottom: 16 }}>

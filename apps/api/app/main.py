@@ -1,7 +1,7 @@
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import auth, candidates, card_news, dashboard, documents, editions, followups, issues, journal, journal_portal, manuscripts, reports, sources, users
+from app.api import ai, auth, candidates, card_news, dashboard, documents, editions, followups, issues, journal, journal_portal, manuscripts, reports, sources, users
 from app.core.config import settings
 from app.core.csrf import CSRFMiddleware
 from app.core.deps import guard_external_users
@@ -18,6 +18,7 @@ app.add_middleware(
 )
 
 app.include_router(auth.router)
+app.include_router(ai.router)
 app.include_router(candidates.router)
 app.include_router(sources.router)
 app.include_router(documents.router)

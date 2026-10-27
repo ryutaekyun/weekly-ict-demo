@@ -1,5 +1,6 @@
 "use client";
 
+import AiPanel from "@/components/AiPanel";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -55,7 +56,7 @@ const IITP_LABELS: Record<string, string> = {
   not_selected: "IITP 미선정",
 };
 
-type RightTab = "context" | "footnotes" | "comments" | "versions";
+type RightTab = "context" | "footnotes" | "comments" | "versions" | "ai";
 
 export default function ManuscriptWorkspacePage() {
   const params = useParams<{ id: string }>();
@@ -121,6 +122,25 @@ export default function ManuscriptWorkspacePage() {
     if (!editorRef.current) return [] as string[];
     return collectFootnoteOrder(editorRef.current.state.doc);
   }, [footnotes, manuscript]);
+
+  async function ensureSavedLock(): Promise<number> {
+    // 저장 대기 중인 연구원 수정이 있으면 먼저 저장하고, 서버의 최신 lock_version을 돌려준다(AI 삽입이 연구원 수정을 덮어쓰지 않도록)
+    if (saveTimerRef.current && editorRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+      await doSave(JSON.stringify(editorRef.current.getJSON()), editorRef.current.getText());
+    }
+    const fresh = await getManuscript(params.id);
+    return fresh.lock_version;
+  }
+
+  async function reloadAfterAiInsert() {
+    const fresh = await getManuscript(params.id);
+    setManuscript(fresh);
+    if (editorRef.current && fresh.body_json) editorRef.current.commands.setContent(JSON.parse(fresh.body_json), { emitUpdate: false });
+    listFootnotes(params.id).then(setFootnotes).catch(() => {});
+    listManuscriptVersions(params.id).then(setVersions).catch(() => {});
+  }
 
   function scheduleSave(json: string, text: string) {
     if (!manuscript) return;
@@ -480,9 +500,18 @@ export default function ManuscriptWorkspacePage() {
             <button className="tbtn" style={tabStyle(rightTab === "footnotes")} onClick={() => setRightTab("footnotes")}>각주({footnoteOrder.length || footnotes.length})</button>
             <button className="tbtn" style={tabStyle(rightTab === "comments")} onClick={() => setRightTab("comments")}>검토의견({comments.filter((c) => c.status === "open").length})</button>
             <button className="tbtn" style={tabStyle(rightTab === "versions")} onClick={() => setRightTab("versions")}>버전({versions.length})</button>
+            {manuscript.candidate_id && <button className="tbtn" style={tabStyle(rightTab === "ai")} onClick={() => setRightTab("ai")} data-testid="tab-ai">AI 제안</button>}
           </div>
 
           {rightTab === "context" && <ContextPanel context={context} />}
+          {rightTab === "ai" && manuscript.candidate_id && (
+            <>
+              <AiPanel kind="outline" targetId={manuscript.candidate_id} title="AI 목차 제안" buttonLabel="AI 목차 제안" testId="ai-panel-outline"
+                manuscript={{ id: manuscript.id, getLockVersion: ensureSavedLock, onInserted: reloadAfterAiInsert }} />
+              <AiPanel kind="draft" targetId={manuscript.candidate_id} title="AI 초안 제안 (연구원 검토용 초안 · 선택한 문장만 삽입)" buttonLabel="AI 초안 제안" testId="ai-panel-draft"
+                manuscript={{ id: manuscript.id, getLockVersion: ensureSavedLock, onInserted: reloadAfterAiInsert }} />
+            </>
+          )}
 
           {rightTab === "footnotes" && (
             <div>

@@ -88,12 +88,24 @@ def seed_ci_fixtures() -> None:
         # 동일 RIN을 공유하는 두 문서 — 실제 클러스터링 로직으로 하나의 복수문서 이슈가 되어야 한다.
         doc1 = _make_doc(
             db, source, title="CI Fixture: Proposed AI Safety Rule",
-            full_text="This notice concerns RIN 9999-CI01 artificial intelligence safety standards for CI testing.",
+            full_text=("This notice concerns RIN 9999-CI01 artificial intelligence safety standards for CI testing.
+
+"
+                       "The agency proposes that providers of high-risk systems document their evaluation methods by March 1, 2027.
+
+"
+                       "Comments on the proposed requirements are due within 60 days of publication in the fixture register."),
             field_code=FieldCode.AI, published_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
         )
         doc2 = _make_doc(
             db, source, title="CI Fixture: Final AI Safety Rule",
-            full_text="This final rule under RIN 9999-CI01 confirms artificial intelligence safety standards for CI testing.",
+            full_text=("This final rule under RIN 9999-CI01 confirms artificial intelligence safety standards for CI testing.
+
+"
+                       "The final requirements take effect on July 1, 2027 and apply to providers with more than 100 employees.
+
+"
+                       "Industry commenters asked for a longer transition period, while consumer groups supported the original schedule."),
             field_code=FieldCode.AI, published_at=datetime(2026, 2, 1, tzinfo=timezone.utc),
         )
         # 독립된 단일 문서 이슈 — 목록·필터 화면에 다양한 사례가 보이도록 한다.

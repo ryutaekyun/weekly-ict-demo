@@ -1,5 +1,6 @@
 "use client";
 
+import AiPanel from "@/components/AiPanel";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -227,6 +228,12 @@ export default function IssueDetailPage() {
           ))}
         </ul>
       </section>
+
+      <div style={{ marginTop: 16 }}>
+        <AiPanel kind="issue" targetId={params.id} title="AI 심층분석 (여러 원문 종합 · 근거 검증)" buttonLabel="AI 심층분석" testId="ai-panel-issue" />
+        <AiPanel kind="candidate" targetId={params.id} title="AI 후보주제 제안" buttonLabel="AI 후보주제 제안" testId="ai-panel-candidate"
+          existingCandidates={detail.candidates.map((c) => ({ id: c.id, title: c.title }))} />
+      </div>
 
       <section className="panel" style={{ marginTop: 16 }}>
         <h2 style={sectionTitle}>이 이슈의 후보주제</h2>

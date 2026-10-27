@@ -1,5 +1,6 @@
 "use client";
 
+import AiPanel from "@/components/AiPanel";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -205,6 +206,11 @@ export default function CandidateDetailPage() {
         <section className="panel" style={{ marginBottom: 16 }}>
           <p style={{ color: "var(--ink-muted)", fontSize: 13 }}>아직 자동 추천 점수가 산출되지 않았습니다</p>
         </section>
+      )}
+
+      {candidate.issue_cluster_id && (
+        <AiPanel kind="candidate" targetId={candidate.issue_cluster_id} title="AI 후보주제 제안 — 기존 규칙 기반 추천 근거와 비교" buttonLabel="AI 후보주제 제안" testId="ai-panel-candidate"
+          existingCandidates={[{ id: candidate.id, title: candidate.title }]} />
       )}
 
       <section className="panel" style={{ marginBottom: 16 }}>
