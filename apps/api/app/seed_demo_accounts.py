@@ -23,6 +23,10 @@ ACCOUNTS = [
 
 
 def main() -> None:
+    from app.core.config import settings
+
+    if settings.app_env == "production":
+        raise SystemExit("운영 환경(APP_ENV=production)에서는 테스트·시연용 가상 계정을 만들 수 없습니다")
     db = SessionLocal()
     lines, skipped = [], []
     try:

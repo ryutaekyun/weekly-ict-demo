@@ -1,0 +1,234 @@
+﻿node.exe : [2m[WebServer] [22m::ffff:127.0.0.1 - - [27/Oct/2026 16:33:47] "GET /index.html HTTP/1.1" 200 -
+At line:1 char:1
++ & "C:\Users\류태균\AppData\Local\Microsoft\WinGet\Packages\OpenJS.NodeJS ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([2m[WebServer]...HTTP/1.1" 200 -:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+Running 52 tests using 1 worker
+
+(node:48348) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:48348) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok  1 [chromium] › e2e\phase3-2-reports.spec.ts:36:5 › 시나리오 H — 일반호 구성 → 발간 점검 → DOCX·PDF 실제 파일 다운로드 → 출력 이력·미리보기 (2.2m)
+  ok  2 [chromium] › e2e\phase3-2-reports.spec.ts:83:5 › 시나리오 I — 요약본: 원고 문장 선택 → 수정 → 저장·새로고침 유지 → 원고 변경 시 재검토 필요 표시 (10.6s)
+  ok  3 [chromium] › e2e\phase3-2-reports.spec.ts:115:5 › 시나리오 J — 출력용 확정: 연구원 불가·필수 점검 미통과 차단·승인권자 예외 사유로 확정·타 사용자 파일 접근 차단 (1.1m)
+  x   4 [chromium] › e2e\phase3-3-cardnews.spec.ts:62:5 › 시나리오 K — 보고서에서 카드뉴스 생성 → 편집·저장·새로고침·재로그인 유지 → 카드 조작·템플릿 변경 → 근거 검증 (17.8s)
+(node:31756) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:31756) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok  5 [chromium] › e2e\phase3-3-cardnews.spec.ts:137:5 › 시나리오 L — PPTX·PNG 실제 파일 다운로드, PNG 해상도, 출력 이력·재다운로드 (1.1m)
+  ok  6 [chromium] › e2e\phase3-3-cardnews.spec.ts:176:5 › 시나리오 M — 검토 요청 → 수정 요청 → 의견 해결 → 승인권자 내부 확정(예외 사유) → 확정 후 수정 차단·새 수정 버전·권한 (17.5s)
+  ok  7 [chromium] › e2e\phase3-3-cardnews.spec.ts:229:5 › 시나리오 N — 후속 규정 등록 → 카드뉴스 '후속 규정 발견·재검토 필요' 표시·확정 차단 → 연구원 확인 후 해소 (14.3s)
+  ok  8 [chromium] › e2e\phase3-4-journal.spec.ts:28:5 › 시나리오 P — 주간기술동향지: 의뢰→저자 제출→검토→수정→심의→교정→확정 발간본(합성 데이터) (2.5m)
+  ok  9 [chromium] › e2e\phase3-4-journal.spec.ts:261:5 › 시나리오 Q — 권한: 내부 검토자는 편집 화면·설정에 접근할 수 없고, 연구원은 설정·발간일을 바꿀 수 없다 (3.1s)
+  ok 10 [chromium] › e2e\phase3-5-demo.spec.ts:6:5 › 3-5 A·B — 분야 선택 → 실제 뉴스 목록(건수=표시 행) → 제목 클릭 시 공식 원문이 새 탭으로 열린다 (5.1s)
+  ok 11 [chromium] › e2e\phase3-5-demo.spec.ts:30:5 › 3-5 C — 원문 주소가 없는 자료는 클릭이 막히고 사유가 표시된다(링크 오류와 접속 제한을 구분) (2.8s)
+  ok 12 [chromium] › e2e\phase3-5-demo.spec.ts:48:5 › 3-5 H — 검색·필터·정렬은 URL에 남아 상세 → 뒤로가기 후에도 유지되고, 조건 초기화로 복구된다 (3.8s)
+  ok 13 [chromium] › e2e\phase3-5-demo.spec.ts:70:5 › 3-5 I — 자료가 없는 분야(ICT 융합기술)는 다른 분야로 채우지 않고 빈 상태를 보여준다 (2.3s)
+  ok 14 [chromium] › e2e\phase3-5-demo.spec.ts:78:5 › 3-5 D·E — 뉴스 → 이슈 → 후보주제, 후보 담당자·설명 수정 → 저장 → 새로고침 후에도 유지되고 이력에 남는다 (3.7s)
+  ok 15 [chromium] › e2e\phase3-6-1-ai.spec.ts:59:5 › 3-6.1 E·F — AI 문장을 지정 소제목 아래·현재 커서 문단 뒤에 삽입 → AI 표시·삽입 목록·미검증 각주, 삽입 취소 (14.3s)
+  ok 16 [chromium] › e2e\phase3-6-1-ai.spec.ts:106:5 › 3-6.1 A·B — 원문 변경 시 삽입된 AI 문장에 '원문 변경·재검토 필요', 변경 전후 표시, 4가지 판단 기록(화면 동작 · 백엔드 감지는 pytest 검증) (3.1s)
+  ok 17 [chromium] › e2e\phase3-6-1-ai.spec.ts:143:5 › 3-6.1 H — 공급자 오류는 종류별 정확한 상태·메시지로 표시되고 취소가 비용 없음을 뜻하지 않음을 안내한다 (3.3s)
+  ok 18 [chromium] › e2e\phase3-6-1-ai.spec.ts:168:5 › 3-6.1 I — 단가 미설정이면 비용을 '계산 불가'로 표시하고(0원 아님), 설정 화면에서 연결 미검증·사용량·단가표를 확인한다 (6.2s)
+  ok 19 [chromium] › e2e\phase3-6-2a-ai.spec.ts:28:5 › 무료 시연 — 유료 AI 승인·사전 점검·연결 진단·단가 설정 UI는 보이지 않고 잠금 안내만 표시된다 (4.4s)
+  ok 20 [chromium] › e2e\phase3-6-2a-ai.spec.ts:52:5 › 3-6.2A — 분석 결과의 품질 평가(7개 항목)는 모든 항목 선택 후에만 저장되고, 모의 응답 평가는 실제 AI 집계와 분리된다 (3.6s)
+  ok 21 [chromium] › e2e\phase3-6-ai.spec.ts:53:5 › 3-6 A·B·H — 공식 원문 선택 → AI 분석 요청 → 결과 저장·새로고침 유지 → 주장의 원문 근거 열람 → 근거 없는 날짜는 검증 실패 표시 (5.8s)
+  ok 22 [chromium] › e2e\phase3-6-ai.spec.ts:85:5 › 3-6 C — AI(모의 포함) 미설정 상태: 가짜 결과 없이 '규칙 기반 자동 분석' 안내만 보이고 규칙 기반 화면은 그대로 동작한다 (3.2s)
+  x  23 [chromium] › e2e\phase3-6-ai.spec.ts:102:5 › 3-6 D·E — 복수 문서 이슈 AI 쟁점 분석 → 근거 확인, AI 후보주제 제안 → 연구원 수정 → 후보 등록 (8.7s)
+(node:50684) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:50684) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok 24 [chromium] › e2e\phase3-6-ai.spec.ts:123:5 › 3-6 F·G — AI 초안 미리보기 → 선택한 문장만 원고에 삽입, 연구원이 입력한 기존 원고는 덮어쓰이지 않고 삽입 각주는 미검증 (13.3s)
+  ok 25 [chromium] › e2e\phase3-6-ai.spec.ts:163:5 › 3-6 I·J — 권한: 검토자는 AI 호출 불가, 같은 원문 버전 재요청은 이전 결과를 재사용하며 호출한도·비용 확인 없이는 실행되지 않는다 (5.0s)
+  ok 26 [chromium] › e2e\phase3-7-demo.spec.ts:31:5 › 3-7 A·F·G — 대시보드 분야 → 자료 목록(건수 일치) → 제목 클릭 새 탭 원문 → 상세 분석 → 이슈·후보 확인 (5.7s)
+  ok 27 [chromium] › e2e\phase3-7-demo.spec.ts:60:5 › 3-7 H·4 — 후보 상세: 분야 수정·추가 조사 필요 상태·검토의견·근거 원문 제외/복원이 저장되고 새로고침 후 유지된다 (4.0s)
+  ok 28 [chromium] › e2e\phase3-7-demo.spec.ts:86:5 › 3-7 I·5 — 직접 집필: 원문 작업대(인용·발췌문)·목차 템플릿·제목 불러오기·작성 점검, 기존 문장은 덮어쓰이지 않고 각주는 미검증 (4.6s)
+  ok 29 [chromium] › e2e\phase3-7-demo.spec.ts:133:5 › 3-7 10 — 메뉴·상세 화면 전수 점검: 모든 메뉴가 열리고 콘솔 오류·무한 로딩·'Application error'가 없다 (10.5s)
+[2m[WebServer] [22m::1 - - [27/Oct/2026 16:43:47] "GET /index.html HTTP/1.1" 200 -
+[2m[WebServer] [22m::1 - - [27/Oct/2026 16:43:47] "GET /data/snapshot.json HTTP/1.1" 200 -
+[2m[WebServer] [22m::1 - - [27/Oct/2026 16:43:47] "GET /data/outputs.json HTTP/1.1" 200 -
+[2m[WebServer] [22m::1 - - [27/Oct/2026 16:43:47] "GET /data/snapshot.json HTTP/1.1" 200 -
+  ok 30 [chromium] › e2e\phase3-7-demo.spec.ts:155:5 › 3-7 7 — 공개 /preview/: 대시보드 현황·9대 분야 탐색·원문 새 탭 링크·후보 점수 근거·시연 가이드·빈 분야(읽기 전용, 실시간 AI 표시 없음) (707ms)
+  ok 31 [chromium] › e2e\phase3-8-demo.spec.ts:133:7 › 3-8 통합 시연 1회차 — 대시보드→우선 검토 후보→후보 검토→원고 작성→점검→DOCX·PDF→카드뉴스 PPTX·PNG (화면 조작만, 콘솔 오류 0) (3.4m)
+  ok 32 [chromium] › e2e\phase3-8-demo.spec.ts:133:7 › 3-8 통합 시연 2회차 — 대시보드→우선 검토 후보→후보 검토→원고 작성→점검→DOCX·PDF→카드뉴스 PPTX·PNG (화면 조작만, 콘솔 오류 0) (3.2m)
+  ok 33 [chromium] › e2e\phase3-8-demo.spec.ts:141:5 › 3-8 정합 — 대시보드 자료 수 구성 = 전체 수집 건수, 분야 합계 + 주 분야 미지정 = 분류 완료 (1.7s)
+[2m[WebServer] [22m::1 - - [27/Oct/2026 16:50:29] "GET /index.html HTTP/1.1" 200 -
+[2m[WebServer] [22m::1 - - [27/Oct/2026 16:50:29] "GET /data/snapshot.json HTTP/1.1" 200 -
+[2m[WebServer] [22m::1 - - [27/Oct/2026 16:50:29] "GET /data/outputs.json HTTP/1.1" 200 -
+[2m[WebServer] [22m::1 - - [27/Oct/2026 16:50:29] "GET /data/snapshot.json HTTP/1.1" 200 -
+  ok 34 [chromium] › e2e\phase3-8-demo.spec.ts:149:5 › 3-8 공개 /preview/ — 우선 검토 후보·자료 수 구성 안내·두 화면 구분 안내 (462ms)
+  ok 35 [chromium] › e2e\phase3-8-demo.spec.ts:167:7 › 3-8 화면 점검 1920×1080 — 주요 화면에 가로 넘침·오류 문구·무한 로딩이 없다 (9.6s)
+  ok 36 [chromium] › e2e\phase3-8-demo.spec.ts:167:7 › 3-8 화면 점검 1366×768 — 주요 화면에 가로 넘침·오류 문구·무한 로딩이 없다 (8.7s)
+  ok 37 [chromium] › e2e\phase3-manuscripts.spec.ts:22:5 › 시나리오 A — 후보주제에서 원고 생성(후보·이슈 컨텍스트 연결) (3.5s)
+  ok 38 [chromium] › e2e\phase3-manuscripts.spec.ts:30:5 › 시나리오 B — 본문 작성·표 삽입 후 새로고침해도 내용 유지 (6.1s)
+  ok 39 [chromium] › e2e\phase3-manuscripts.spec.ts:42:5 › 시나리오 C — 문장에 원문 근거 연결(각주) 후 저장·재조회, 위치 미확인 표시 (7.7s)
+  ok 40 [chromium] › e2e\phase3-manuscripts.spec.ts:68:5 › 시나리오 D — 주요 버전 저장 후 수정, 이전 버전 복원 (4.3s)
+  ok 41 [chromium] › e2e\phase3-manuscripts.spec.ts:89:5 › 시나리오 E — 작성자 제출 → 검토자 수정요청 → 의견 해결 → 재검토 → 승인권자 내부 확정 (11.4s)
+  ok 42 [chromium] › e2e\phase3-manuscripts.spec.ts:124:5 › 시나리오 F — 동시 수정 충돌 감지 및 권한 없는 사용자 차단 (14.4s)
+  ok 43 [chromium] › e2e\phase3-manuscripts.spec.ts:157:5 › 시나리오 G — 근거 미검증 각주는 연구원이 명시적으로 확인하기 전까지 검증완료가 되지 않는다 (5.5s)
+  ok 44 [chromium] › e2e\phase4-1-accounts.spec.ts:24:5 › 4-1 A — 회원가입 → 승인 대기 로그인 차단 → 관리자 승인 → 로그인 → 관심 분야 저장·유지 → 권한 구분 (12.4s)
+  ok 45 [chromium] › e2e\phase4-1-accounts.spec.ts:85:5 › 4-1 B — 초대 링크 가입(즉시 승인) + 연구원 A·B가 서로 다른 브라우저에서 같은 후보주제를 보고 검토의견을 주고받는다 (21.7s)
+  ok 46 [chromium] › e2e\phase4-1-accounts.spec.ts:168:5 › 4-1 C — 주요 화면 콘솔 오류 없음, 1920×1080·1366×768 가로 넘침 없음(로그인·회원가입·대시보드·사용자 관리·내 정보) (11.9s)
+  ok 47 [chromium] › e2e\scenario-a-document-browse.spec.ts:4:5 › 시나리오 A — 로그인 → ICT 정보 수집 → 분야 선택 → 문서 조회 → 관련 이슈 이동 (2.8s)
+  ok 48 [chromium] › e2e\scenario-b-issue-analysis.spec.ts:4:5 › 시나리오 B — 핵심 이슈 목록 → 복수 문서 이슈 선택 → 타임라인·쟁점 확인 → 연결된 원문 열기 (3.0s)
+  x  49 [chromium] › e2e\scenario-c-candidate-review.spec.ts:4:5 › 시나리오 C — 추천 후보 확인 → 평가 근거 검토 → 의견 작성 → 저장 → 새로고침 → 재확인 (12.6s)
+(node:17484) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:17484) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  x  50 [chromium] › e2e\scenario-d-classification-edit.spec.ts:4:5 › 시나리오 D — 문서 선택 → 분류 수정 → 저장 → 새로고침 후 반영 확인 (8.4s)
+(node:40684) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:40684) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok 51 [chromium] › e2e\scenario-e-source-management.spec.ts:4:5 › 시나리오 E — 관리자 로그인 → 출처 선택 → 수동 수집 실행 → 수집 상태 확인 (4.0s)
+  ok 52 [chromium] › e2e\scenario-f-permissions.spec.ts:4:5 › 시나리오 F — 일반 연구원은 관리자 전용 기능이 차단되고, 허용된 기능(검토의견)은 실행된다 (7.6s)
+
+
+  1) [chromium] › e2e\phase3-3-cardnews.spec.ts:62:5 › 시나리오 K — 보고서에서 카드뉴스 생성 → 편집·저장·새로고침·재로그인 유지 → 카드 조작·템플릿 변경 → 근거 검증 
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoHaveCount[2m([22m[32mexpected[39m[2m)[22m failed
+
+    Locator:  getByRole('button', { name: /^카드 \d+ / })
+    Expected: [32m6[39m
+    Received: [31m5[39m
+    Timeout:  5000ms
+
+    Call log:
+    [2m  - Expect "toHaveCount" with timeout 5000ms[22m
+    [2m  - waiting for getByRole('button', { name: /^카드 \d+ / })[22m
+    [2m    9 × locator resolved to 5 elements[22m
+    [2m      - unexpected value "5"[22m
+
+
+      100 |   // 카드 추가·복제·삭제·순서 변경
+      101 |   await page.getByRole("button", { name: "추가", exact: true }).click();
+    > 102 |   await expect(page.getByRole("button", { name: /^카드 \d+ / })).toHaveCount(6);
+          |                                                                ^
+      103 |   await page.getByRole("button", { name: "복제", exact: true }).click();
+      104 |   await expect(page.getByRole("button", { name: /^카드 \d+ / })).toHaveCount(7);
+      105 |   await page.getByRole("button", { name: "삭제", exact: true }).click();
+        at C:\Users\류태균\AppData\Local\Temp\claude\C--Users-----OneDrive--------------RTK\0a91b1a8-9698-462a-a4b4-da1294b4eb39\scratchpad\weekly-ict-demo\apps\web\e2e\phase3-3-cardnews.spec.ts:102:64
+
+    Error Context: test-results\phase3-3-cardnews-시나리오-K-—-c776c-인-유지-→-카드-조작·템플릿-변경-→-근거-검증-chromium\error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results\phase3-3-cardnews-시나리오-K-—-c776c-인-유지-→-카드-조작·템플릿-변경-→-근거-검증-chromium\trace.zip
+    Usage:
+
+        npx playwright show-trace test-results\phase3-3-cardnews-시나리오-K-—-c776c-인-유지-→-카드-조작·템플릿-변경-→-근거-검증-chromium\trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) [chromium] › e2e\phase3-6-ai.spec.ts:102:5 › 3-6 D·E — 복수 문서 이슈 AI 쟁점 분석 → 근거 확인, AI 후보주제 제안 → 연구원 수정 → 후보 등록 
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
+
+    Locator: getByTestId('ai-panel-candidate').getByRole('status').filter({ hasText: '후보주제를 등록' })
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+    [2m  - Expect "toBeVisible" with timeout 5000ms[22m
+    [2m  - waiting for getByTestId('ai-panel-candidate').getByRole('status').filter({ hasText: '후보주제를 등록' })[22m
+
+
+      115 |   await cp.getByLabel("AI 제안 제목(수정)").fill(title);
+      116 |   await cp.getByTestId("ai-save-candidate").click();
+    > 117 |   await expect(cp.getByRole("status").filter({ hasText: "후보주제를 등록" })).toBeVisible();
+          |                                                                        ^
+      118 |   const list = await api(page, "GET", `/candidates?q=${encodeURIComponent(title)}`);
+      119 |   expect(list.json.length).toBe(1);
+      120 |   expect(list.json[0].status).toBe("rec"); // 선정·확정이 아닌 일반 신규 후보 상태
+        at C:\Users\류태균\AppData\Local\Temp\claude\C--Users-----OneDrive--------------RTK\0a91b1a8-9698-462a-a4b4-da1294b4eb39\scratchpad\weekly-ict-demo\apps\web\e2e\phase3-6-ai.spec.ts:117:72
+
+    Error Context: test-results\phase3-6-ai-3-6-D·E-—-복수-문-28d85-AI-후보주제-제안-→-연구원-수정-→-후보-등록-chromium\error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results\phase3-6-ai-3-6-D·E-—-복수-문-28d85-AI-후보주제-제안-→-연구원-수정-→-후보-등록-chromium\trace.zip
+    Usage:
+
+        npx playwright show-trace test-results\phase3-6-ai-3-6-D·E-—-복수-문-28d85-AI-후보주제-제안-→-연구원-수정-→-후보-등록-chromium\trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  3) [chromium] › e2e\scenario-c-candidate-review.spec.ts:4:5 › 시나리오 C — 추천 후보 확인 → 평가 근거 검토 → 의견 작성 → 저장 → 새로고침 → 재확인 
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
+
+    Locator: getByText(/부분 평가점수|점$/).first()
+    Expected: visible
+    Timeout: 10000ms
+    Error: element(s) not found
+
+    Call log:
+    [2m  - Expect "toBeVisible" with timeout 10000ms[22m
+    [2m  - waiting for getByText(/부분 평가점수|점$/).first()[22m
+
+
+      10 |
+      11 |   // 평가 근거(가중점수 또는 '평가 보류')가 화면에 보여야 한다
+    > 12 |   await expect(page.getByText(/부분 평가점수|점$/).first()).toBeVisible({ timeout: 10_000 });
+         |                                                      ^
+      13 |
+      14 |   const comment = `Playwright E2E ${Date.now()}`;
+      15 |   await page.getByPlaceholder("검토 의견을 입력하세요").fill(comment);
+        at C:\Users\류태균\AppData\Local\Temp\claude\C--Users-----OneDrive--------------RTK\0a91b1a8-9698-462a-a4b4-da1294b4eb39\scratchpad\weekly-ict-demo\apps\web\e2e\scenario-c-candidate-review.spec.ts:12:54
+
+    Error Context: test-results\scenario-c-candidate-revie-ce2a8-토-→-의견-작성-→-저장-→-새로고침-→-재확인-chromium\error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results\scenario-c-candidate-revie-ce2a8-토-→-의견-작성-→-저장-→-새로고침-→-재확인-chromium\trace.zip
+    Usage:
+
+        npx playwright show-trace test-results\scenario-c-candidate-revie-ce2a8-토-→-의견-작성-→-저장-→-새로고침-→-재확인-chromium\trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  4) [chromium] › e2e\scenario-d-classification-edit.spec.ts:4:5 › 시나리오 D — 문서 선택 → 분류 수정 → 저장 → 새로고침 후 반영 확인 
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
+
+    Locator: getByText('우선 검토 · 연구원 수정됨').or(getByText('추가 확인 필요 · 연구원 수정됨'))
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+    [2m  - Expect "toBeVisible" with timeout 5000ms[22m
+    [2m  - waiting for getByText('우선 검토 · 연구원 수정됨').or(getByText('추가 확인 필요 · 연구원 수정됨'))[22m
+
+
+      18 |   await page.reload();
+      19 |   // 분류·평가 두 섹션 모두 같은 문구를 쓰므로(반복 실행 시 둘 다 표시될 수 있음) 평가 섹션으로 범위를 좁힌다
+    > 20 |   await expect(page.getByText("우선 검토 · 연구원 수정됨").or(page.getByText("추가 확인 필요 · 연구원 수정됨"))).toBeVisible();
+         |                                                                                            ^
+      21 |   await expect(page.locator("form", { hasText: "실무 활용성 평가" }).locator("select")).toHaveValue(next);
+      22 |
+      23 |   // 시연 데이터를 바꾼 채 두지 않도록 원래 평가값으로 되돌린다
+        at C:\Users\류태균\AppData\Local\Temp\claude\C--Users-----OneDrive--------------RTK\0a91b1a8-9698-462a-a4b4-da1294b4eb39\scratchpad\weekly-ict-demo\apps\web\e2e\scenario-d-classification-edit.spec.ts:20:92
+
+    Error Context: test-results\scenario-d-classification--f609f-→-분류-수정-→-저장-→-새로고침-후-반영-확인-chromium\error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results\scenario-d-classification--f609f-→-분류-수정-→-저장-→-새로고침-후-반영-확인-chromium\trace.zip
+    Usage:
+
+        npx playwright show-trace test-results\scenario-d-classification--f609f-→-분류-수정-→-저장-→-새로고침-후-반영-확인-chromium\trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  Slow test file: [chromium] › e2e\phase3-8-demo.spec.ts (7.0m)
+  Consider running tests from slow files in parallel. See: https://playwright.dev/docs/test-parallel
+  4 failed
+    [chromium] › e2e\phase3-3-cardnews.spec.ts:62:5 › 시나리오 K — 보고서에서 카드뉴스 생성 → 편집·저장·새로고침·재로그인 유지 → 카드 조작·템플릿 변경 → 근거 검증 
+    [chromium] › e2e\phase3-6-ai.spec.ts:102:5 › 3-6 D·E — 복수 문서 이슈 AI 쟁점 분석 → 근거 확인, AI 후보주제 제안 → 연구원 수정 → 후보 등록 
+    [chromium] › e2e\scenario-c-candidate-review.spec.ts:4:5 › 시나리오 C — 추천 후보 확인 → 평가 근거 검토 → 의견 작성 → 저장 → 새로고침 → 재확인 
+    [chromium] › e2e\scenario-d-classification-edit.spec.ts:4:5 › 시나리오 D — 문서 선택 → 분류 수정 → 저장 → 새로고침 후 반영 확인 
+  48 passed (19.4m)

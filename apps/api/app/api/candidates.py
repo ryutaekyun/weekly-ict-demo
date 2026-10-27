@@ -194,6 +194,13 @@ def _history(db: Session, candidate: Candidate) -> list[dict]:
     return out
 
 
+@router.get("/priority")
+def priority_candidates(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    """우선 검토 후보 — 점수·최근성·근거 수 기준의 규칙 기반 선별(IITP 공식 선정 아님)."""
+    from app.services.candidate_priority import priority_review
+    return priority_review(db)
+
+
 @router.get("/{candidate_id}", response_model=CandidateDetailOut)
 def get_candidate(
     candidate_id: uuid.UUID,

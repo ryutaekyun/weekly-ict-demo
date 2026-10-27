@@ -1,0 +1,103 @@
+﻿node.exe : [2m[WebServer] [22m::ffff:127.0.0.1 - - [27/Oct/2026 16:53:45] "GET /index.html HTTP/1.1" 200 -
+At line:1 char:1
++ & "C:\Users\류태균\AppData\Local\Microsoft\WinGet\Packages\OpenJS.NodeJS ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([2m[WebServer]...HTTP/1.1" 200 -:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+Running 14 tests using 1 worker
+
+(node:46092) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:46092) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok  1 [chromium] › e2e\phase3-3-cardnews.spec.ts:62:5 › 시나리오 K — 보고서에서 카드뉴스 생성 → 편집·저장·새로고침·재로그인 유지 → 카드 조작·템플릿 변경 → 근거 검증 (19.7s)
+  ok  2 [chromium] › e2e\phase3-3-cardnews.spec.ts:137:5 › 시나리오 L — PPTX·PNG 실제 파일 다운로드, PNG 해상도, 출력 이력·재다운로드 (1.1m)
+  ok  3 [chromium] › e2e\phase3-3-cardnews.spec.ts:176:5 › 시나리오 M — 검토 요청 → 수정 요청 → 의견 해결 → 승인권자 내부 확정(예외 사유) → 확정 후 수정 차단·새 수정 버전·권한 (16.9s)
+  ok  4 [chromium] › e2e\phase3-3-cardnews.spec.ts:229:5 › 시나리오 N — 후속 규정 등록 → 카드뉴스 '후속 규정 발견·재검토 필요' 표시·확정 차단 → 연구원 확인 후 해소 (13.3s)
+  x   5 [chromium] › e2e\phase3-6-ai.spec.ts:53:5 › 3-6 A·B·H — 공식 원문 선택 → AI 분석 요청 → 결과 저장·새로고침 유지 → 주장의 원문 근거 열람 → 근거 없는 날짜는 검증 실패 표시 (30.4s)
+(node:40512) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:40512) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok  6 [chromium] › e2e\phase3-6-ai.spec.ts:85:5 › 3-6 C — AI(모의 포함) 미설정 상태: 가짜 결과 없이 '규칙 기반 자동 분석' 안내만 보이고 규칙 기반 화면은 그대로 동작한다 (2.8s)
+  x   7 [chromium] › e2e\phase3-6-ai.spec.ts:102:5 › 3-6 D·E — 복수 문서 이슈 AI 쟁점 분석 → 근거 확인, AI 후보주제 제안 → 연구원 수정 → 후보 등록 (8.6s)
+(node:49104) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:49104) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok  8 [chromium] › e2e\phase3-6-ai.spec.ts:123:5 › 3-6 F·G — AI 초안 미리보기 → 선택한 문장만 원고에 삽입, 연구원이 입력한 기존 원고는 덮어쓰이지 않고 삽입 각주는 미검증 (13.0s)
+  ok  9 [chromium] › e2e\phase3-6-ai.spec.ts:163:5 › 3-6 I·J — 권한: 검토자는 AI 호출 불가, 같은 원문 버전 재요청은 이전 결과를 재사용하며 호출한도·비용 확인 없이는 실행되지 않는다 (4.5s)
+  ok 10 [chromium] › e2e\phase4-1-accounts.spec.ts:24:5 › 4-1 A — 회원가입 → 승인 대기 로그인 차단 → 관리자 승인 → 로그인 → 관심 분야 저장·유지 → 권한 구분 (12.4s)
+  ok 11 [chromium] › e2e\phase4-1-accounts.spec.ts:85:5 › 4-1 B — 초대 링크 가입(즉시 승인) + 연구원 A·B가 서로 다른 브라우저에서 같은 후보주제를 보고 검토의견을 주고받는다 (16.5s)
+  ok 12 [chromium] › e2e\phase4-1-accounts.spec.ts:177:5 › 4-1 C — 주요 화면 콘솔 오류 없음, 1920×1080·1366×768 가로 넘침 없음(로그인·회원가입·대시보드·사용자 관리·내 정보) (10.7s)
+  ok 13 [chromium] › e2e\scenario-c-candidate-review.spec.ts:4:5 › 시나리오 C — 추천 후보 확인 → 평가 근거 검토 → 의견 작성 → 저장 → 새로고침 → 재확인 (3.8s)
+  ok 14 [chromium] › e2e\scenario-d-classification-edit.spec.ts:4:5 › 시나리오 D — 문서 선택 → 분류 수정 → 저장 → 새로고침 후 반영 확인 (3.4s)
+
+
+  1) [chromium] › e2e\phase3-6-ai.spec.ts:53:5 › 3-6 A·B·H — 공식 원문 선택 → AI 분석 요청 → 결과 저장·새로고침 유지 → 주장의 원문 근거 열람 → 근거 없는 날짜는 검증 실패 표시 
+
+    [31mTest timeout of 30000ms exceeded.[39m
+
+    Error: locator.click: Test timeout of 30000ms exceeded.
+    Call log:
+    [2m  - waiting for getByTestId('ai-panel-document').locator('[data-evidence-status="found"]').first().getByRole('button', { name: '검증 완료' })[22m
+
+
+      77 |   // 연구원 검증은 별도 동작: 근거가 확인된 문장은 한 번에, 그렇지 않은 문장은 사유가 필요하다
+      78 |   const p2 = page.getByTestId("ai-panel-document");
+    > 79 |   await p2.locator('[data-evidence-status="found"]').first().getByRole("button", { name: "검증 완료" }).click();
+         |                                                                                                     ^
+      80 |   await expect(p2.locator('[data-evidence-status="found"][data-researcher-status="verified"]').first()).toBeVisible();
+      81 |   await p2.locator('[data-evidence-status="value_mismatch"]').first().getByRole("button", { name: "검증 완료" }).click();
+      82 |   await expect(p2.getByTestId("ai-error")).toContainText("사유");
+        at C:\Users\류태균\AppData\Local\Temp\claude\C--Users-----OneDrive--------------RTK\0a91b1a8-9698-462a-a4b4-da1294b4eb39\scratchpad\weekly-ict-demo\apps\web\e2e\phase3-6-ai.spec.ts:79:101
+
+    Error Context: test-results\phase3-6-ai-3-6-A·B·H-—-공식-ed98a--근거-열람-→-근거-없는-날짜는-검증-실패-표시-chromium\error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results\phase3-6-ai-3-6-A·B·H-—-공식-ed98a--근거-열람-→-근거-없는-날짜는-검증-실패-표시-chromium\trace.zip
+    Usage:
+
+        npx playwright show-trace test-results\phase3-6-ai-3-6-A·B·H-—-공식-ed98a--근거-열람-→-근거-없는-날짜는-검증-실패-표시-chromium\trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) [chromium] › e2e\phase3-6-ai.spec.ts:102:5 › 3-6 D·E — 복수 문서 이슈 AI 쟁점 분석 → 근거 확인, AI 후보주제 제안 → 연구원 수정 → 후보 등록 
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
+
+    Locator: getByTestId('ai-panel-candidate').getByRole('status').filter({ hasText: '후보주제를 등록' })
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+    [2m  - Expect "toBeVisible" with timeout 5000ms[22m
+    [2m  - waiting for getByTestId('ai-panel-candidate').getByRole('status').filter({ hasText: '후보주제를 등록' })[22m
+
+
+      115 |   await cp.getByLabel("AI 제안 제목(수정)").fill(title);
+      116 |   await cp.getByTestId("ai-save-candidate").click();
+    > 117 |   await expect(cp.getByRole("status").filter({ hasText: "후보주제를 등록" })).toBeVisible();
+          |                                                                        ^
+      118 |   const list = await api(page, "GET", `/candidates?q=${encodeURIComponent(title)}`);
+      119 |   expect(list.json.length).toBe(1);
+      120 |   expect(list.json[0].status).toBe("rec"); // 선정·확정이 아닌 일반 신규 후보 상태
+        at C:\Users\류태균\AppData\Local\Temp\claude\C--Users-----OneDrive--------------RTK\0a91b1a8-9698-462a-a4b4-da1294b4eb39\scratchpad\weekly-ict-demo\apps\web\e2e\phase3-6-ai.spec.ts:117:72
+
+    Error Context: test-results\phase3-6-ai-3-6-D·E-—-복수-문-28d85-AI-후보주제-제안-→-연구원-수정-→-후보-등록-chromium\error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results\phase3-6-ai-3-6-D·E-—-복수-문-28d85-AI-후보주제-제안-→-연구원-수정-→-후보-등록-chromium\trace.zip
+    Usage:
+
+        npx playwright show-trace test-results\phase3-6-ai-3-6-D·E-—-복수-문-28d85-AI-후보주제-제안-→-연구원-수정-→-후보-등록-chromium\trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2 failed
+    [chromium] › e2e\phase3-6-ai.spec.ts:53:5 › 3-6 A·B·H — 공식 원문 선택 → AI 분석 요청 → 결과 저장·새로고침 유지 → 주장의 원문 근거 열람 → 근거 없는 날짜는 검증 실패 표시 
+    [chromium] › e2e\phase3-6-ai.spec.ts:102:5 › 3-6 D·E — 복수 문서 이슈 AI 쟁점 분석 → 근거 확인, AI 후보주제 제안 → 연구원 수정 → 후보 등록 
+  12 passed (3.8m)

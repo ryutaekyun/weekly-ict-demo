@@ -150,7 +150,7 @@ export default function ManuscriptWorkspacePage() {
     try {
       const created = await createFootnote(manuscript.id, {
         mark_id: markId, anchor_text: text.slice(0, 500), source_url: src.doc.origin_url, source_org: src.doc.org ?? undefined,
-        excerpt: src.excerpt, location_label: src.location, source_document_id: src.doc.document_id,
+        excerpt: src.excerpt, location_label: src.location, source_document_id: src.doc.document_id, published_at: src.doc.published_at ?? undefined,
       });
       editor.chain().focus().insertContentAt(insertionPos(editor), { type: "paragraph", content: [{ type: "text", text, marks: [{ type: "footnoteMark", attrs: { footnoteId: markId } }] }] }).run();
       setFootnotes((prev) => [...prev, created]);

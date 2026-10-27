@@ -30,8 +30,8 @@ def get_current_user(
     if payload is None or "sub" not in payload:
         raise credentials_error
     user = db.get(User, uuid.UUID(payload["sub"]))
-    if user is None or not user.is_active:
-        raise credentials_error
+    if user is None or not user.is_active or user.approval_status != "approved":
+        raise credentials_error  # 승인 대기·거절·비활성 계정은 기존 토큰이 있어도 내부 자료에 접근할 수 없다
     return user
 
 

@@ -41,6 +41,8 @@ class DashboardSummaryOut(BaseModel):
     pending_review_documents: int
     unclassified_documents: int  # 아직 Phase 2-2 파이프라인을 거치지 않은 문서
     by_field: list[FieldCountOut]
+    matched_without_field: int = 0  # 관련 자료이지만 주 분야가 지정되지 않은 건수(분야별 합계 + 이 값 = 관련 자료 수)
+    issue_cluster_without_candidate: int = 0  # 후보주제가 없는 핵심 이슈(행정·공지성 등 사유는 이슈 화면에 표시)
 
     extraction_success: int
     extraction_summary_only: int

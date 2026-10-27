@@ -25,7 +25,10 @@ from app.services.field_taxonomy import FIELD_DEFINITIONS, taxonomy_as_prompt_co
 MIN_SCORE_FOR_MATCH = 2.5
 RELATED_FIELD_RATIO = 0.4
 RELATED_FIELD_MIN_SCORE = 1.5
-ANALYSIS_VERSION_RULE = "rule-v1"
+# 약한 단일 매칭 보호(rule-v2): 제목에 분야 키워드가 없고 본문에서 1종 키워드가 1~2번만 걸린 경우는 우연한 매칭(예: 차량 안전 기준 문서의 'autonomous vehicle')일 가능성이 커 '분류 보류'로 둔다
+WEAK_MATCH_MAX_SCORE = 6.0
+_TITLE_ALIASES = {"artificial intelligence": ("ai",), "large language model": ("llm", "llms"), "machine learning": ("ml",)}
+ANALYSIS_VERSION_RULE = "rule-v2"
 ANALYSIS_VERSION_AI = "ai-v1"
 
 
@@ -61,7 +64,14 @@ def score_document_against_fields(text: str) -> list[FieldScore]:
     return results
 
 
-def classify_document_rule_based(text: str) -> dict:
+def _in_title(kw: str, title_l: str) -> bool:
+    if kw in title_l:
+        return True
+    padded = re.sub(r"[^a-z0-9]+", " ", f" {title_l} ")
+    return any(f" {a} " in padded for a in _TITLE_ALIASES.get(kw, ()))
+
+
+def classify_document_rule_based(text: str, title: str = "") -> dict:
     scores = score_document_against_fields(text)
     top = scores[0]
 
@@ -76,6 +86,18 @@ def classify_document_rule_based(text: str) -> dict:
             "relevance": ClassificationRelevance.PENDING_REVIEW,
             "confidence": None,
             "reasoning": reasoning,
+            "matched_keywords": [],
+        }
+
+    title_l = (title or "").lower()
+    if title_l and len(top.matched) == 1 and top.score < WEAK_MATCH_MAX_SCORE and not _in_title(top.matched[0][1].lower(), title_l):
+        return {
+            "primary_field_code": None,
+            "related_field_codes": [],
+            "relevance": ClassificationRelevance.PENDING_REVIEW,
+            "confidence": None,
+            "reasoning": (f"분류 보류(약한 단일 매칭): {top.field_code.value} 분야 키워드 '{top.matched[0][1]}' 1종이 본문에서만 점수 {top.score:.1f}로 걸렸고 "
+                          "제목에는 분야 키워드가 없어 우연한 매칭일 수 있다 — 연구원 확인 필요."),
             "matched_keywords": [],
         }
 
@@ -198,7 +220,7 @@ def run_classification(
         if result is not None:
             method = ClassificationMethod.AI
     if result is None:
-        result = classify_document_rule_based(text)
+        result = classify_document_rule_based(text, document.title)
         method = ClassificationMethod.RULE_BASED
 
     existing = db.query(DocumentClassification).filter_by(document_id=document.id).one_or_none()

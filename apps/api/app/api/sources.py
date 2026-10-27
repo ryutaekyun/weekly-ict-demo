@@ -44,7 +44,7 @@ def list_sources(
 def create_source(
     payload: SourceCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.ADMIN)),
+    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.SOURCE_ADMIN)),
 ):
     source = Source(**payload.model_dump())
     db.add(source)
@@ -96,7 +96,7 @@ def update_source(
     source_id: uuid.UUID,
     payload: SourceUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.ADMIN)),
+    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.SOURCE_ADMIN)),
 ):
     source = _get_source_or_404(db, source_id)
     data = payload.model_dump(exclude_unset=True)
@@ -119,7 +119,7 @@ def update_source(
 def trigger_collection(
     source_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.APPROVER, UserRole.REVIEWER)),
+    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.SOURCE_ADMIN, UserRole.APPROVER, UserRole.REVIEWER)),
 ):
     source = _get_source_or_404(db, source_id)
     if not source.is_active:

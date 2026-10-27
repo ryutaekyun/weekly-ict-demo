@@ -21,3 +21,6 @@ apps/web/tsconfig.tsbuildinfo
 
 # 시연용 가상 계정 비밀번호(로컬 전용)
 apps/api/demo_accounts.local.txt
+backups/
+
+infra/.env.prod

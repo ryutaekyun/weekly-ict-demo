@@ -29,6 +29,10 @@ ACCOUNTS = [
 
 
 def seed_e2e_test_users() -> None:
+    from app.core.config import settings
+
+    if settings.app_env == "production":
+        raise SystemExit("운영 환경(APP_ENV=production)에서는 테스트·시연용 가상 계정을 만들 수 없습니다")
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     try:

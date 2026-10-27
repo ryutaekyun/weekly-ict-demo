@@ -12,7 +12,7 @@ from starlette.responses import JSONResponse
 from app.core.security import ACCESS_TOKEN_COOKIE, CSRF_COOKIE, CSRF_HEADER
 
 UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
-EXEMPT_PATHS = {"/auth/login", "/auth/logout"}
+EXEMPT_PATHS = {"/auth/login", "/auth/logout", "/auth/register"}
 
 
 class CSRFMiddleware(BaseHTTPMiddleware):

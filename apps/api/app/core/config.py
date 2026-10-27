@@ -1,8 +1,12 @@
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    # production 이면 안전하지 않은 설정(기본 비밀키·Secure 쿠키 꺼짐)으로는 서버가 시작되지 않는다
+    app_env: str = "development"
 
     database_url: str = "sqlite:///./dev.db"
     jwt_secret: str = "change-me-in-env"
@@ -22,6 +26,15 @@ class Settings(BaseSettings):
 
     max_failed_login_attempts: int = 5
     login_lockout_minutes: int = 15
+
+    @model_validator(mode="after")
+    def _production_safety(self):
+        if self.app_env == "production":
+            if self.jwt_secret == "change-me-in-env" or len(self.jwt_secret) < 32:
+                raise ValueError("운영 환경에서는 JWT_SECRET을 32자 이상의 무작위 값으로 설정해야 합니다")
+            if not self.cookie_secure:
+                raise ValueError("운영 환경에서는 COOKIE_SECURE=true(HTTPS)여야 합니다")
+        return self
 
 
 settings = Settings()

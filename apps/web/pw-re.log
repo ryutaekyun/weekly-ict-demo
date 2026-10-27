@@ -1,0 +1,15 @@
+﻿node.exe : [2m[WebServer] [22m::ffff:127.0.0.1 - - [27/Oct/2026 15:58:41] "GET /index.html HTTP/1.1" 200 -
+At line:1 char:1
++ & "C:\Users\류태균\AppData\Local\Microsoft\WinGet\Packages\OpenJS.NodeJS ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([2m[WebServer]...HTTP/1.1" 200 -:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+Running 3 tests using 1 worker
+
+(node:42296) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:42296) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ok 1 [chromium] › e2e\phase3-2-reports.spec.ts:115:5 › 시나리오 J — 출력용 확정: 연구원 불가·필수 점검 미통과 차단·승인권자 예외 사유로 확정·타 사용자 파일 접근 차단 (1.0m)

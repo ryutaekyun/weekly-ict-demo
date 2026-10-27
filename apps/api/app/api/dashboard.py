@@ -49,6 +49,7 @@ def get_dashboard_summary(
         .group_by(DocumentClassification.primary_field_code)
     ).all()
     by_field = [FieldCountOut(field_code=fc, document_count=cnt) for fc, cnt in by_field_rows]
+    matched_without_field = max(matched - sum(c for _, c in by_field_rows), 0)
 
     extraction_counts: dict[ExtractionStatus, int] = dict(
         db.execute(
@@ -74,6 +75,9 @@ def get_dashboard_summary(
         .having(func.count() > 1)
     ).all()
     issue_cluster_multi_document = len(multi_doc_cluster_ids)
+
+    with_cand = select(Candidate.issue_cluster_id).where(Candidate.issue_cluster_id.is_not(None))
+    issue_cluster_without_candidate = db.scalar(select(func.count()).select_from(IssueCluster).where(IssueCluster.status == IssueClusterStatus.ACTIVE, IssueCluster.id.not_in(with_cand))) or 0
 
     candidate_total = db.scalar(select(func.count()).select_from(Candidate)) or 0
     candidate_status_rows = db.execute(select(Candidate.status, func.count()).group_by(Candidate.status)).all()
@@ -106,6 +110,8 @@ def get_dashboard_summary(
         pending_review_documents=pending_review,
         unclassified_documents=max(unclassified, 0),
         by_field=by_field,
+        matched_without_field=matched_without_field,
+        issue_cluster_without_candidate=issue_cluster_without_candidate,
         extraction_success=extraction_counts.get(ExtractionStatus.SUCCESS, 0),
         extraction_summary_only=extraction_counts.get(ExtractionStatus.SUMMARY_ONLY, 0),
         extraction_partial=extraction_counts.get(ExtractionStatus.PARTIAL, 0),

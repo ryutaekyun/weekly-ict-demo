@@ -4,7 +4,7 @@ import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import AppShell from "@/components/AppShell";
-import { createCandidate, listCandidates, listUsers, UnauthorizedError, type Candidate, type UserSummary } from "@/lib/api";
+import { createCandidate, getPriorityCandidates, listCandidates, listUsers, UnauthorizedError, type Candidate, type PriorityReview, type UserSummary } from "@/lib/api";
 import { CANDIDATE_STATUS_LABELS, FIELD_LABELS, fmtDateOnly } from "@/lib/labels";
 
 function CandidatesList() {
@@ -24,6 +24,8 @@ function CandidatesList() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ title: "", field_code: "ai", summary: "", recommended_reason: "", assignee_user_id: "" });
   const [reloadKey, setReloadKey] = useState(0);
+  const [priority, setPriority] = useState<PriorityReview | null>(null);
+  useEffect(() => { getPriorityCandidates().then(setPriority).catch(() => undefined); }, [reloadKey]);
 
   useEffect(() => { listUsers().then(setUsers).catch(() => undefined); }, []);
   useEffect(() => {
@@ -69,6 +71,25 @@ function CandidatesList() {
       <p style={{ color: "var(--ink-muted)", fontSize: 13, marginTop: 0 }}>
         AI/규칙 기반 추천과 연구원이 직접 등록한 후보주제를 한 화면에서 다룹니다. 연구원 내부 검토·확정과 IITP 공식 선정은 별개입니다.
       </p>
+
+      {priority && (
+        <details className="panel" open style={{ marginBottom: 14 }} data-testid="priority-panel">
+          <summary style={{ cursor: "pointer", fontWeight: 600 }}>우선 검토 후보 {priority.items.length}건 <span style={{ fontWeight: 400, color: "var(--ink-muted)", fontSize: 12 }}>(전체 {priority.total_candidates}건 중 규칙 기반 선별 · IITP 공식 선정 아님)</span></summary>
+          <ul style={{ fontSize: 12, color: "var(--ink-muted)", margin: "6px 0", paddingLeft: 18 }} data-testid="priority-criteria">
+            {priority.criteria.map((c) => <li key={c}>{c}</li>)}
+          </ul>
+          <ol style={{ margin: 0, paddingLeft: 20, fontSize: 13 }}>
+            {priority.items.map((it) => (
+              <li key={it.candidate_id} data-testid="priority-item" style={{ marginBottom: 6 }}>
+                <Link href={`/candidates/${it.candidate_id}`}>{it.title.slice(0, 90)}</Link>{" "}
+                <span className="badge">{FIELD_LABELS[it.field_code] ?? it.field_code}</span> <b>{it.priority_score}</b>
+                <div style={{ fontSize: 12, color: "var(--ink-muted)" }}>선별 이유: {it.reasons.join(" · ")}{it.flags.length > 0 && <span style={{ color: "var(--warn, #b45309)" }}> · {it.flags.join(" · ")}</span>}</div>
+              </li>
+            ))}
+          </ol>
+          {priority.items.length === 0 && <p>기준을 충족하는 후보가 없습니다. 기준을 낮춰 개수를 채우지 않습니다.</p>}
+        </details>
+      )}
 
       <div className="panel" style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 14, alignItems: "center" }}>
         <select aria-label="분야 필터" value={fieldCode} onChange={(e) => { setFieldCode(e.target.value); syncUrl({ field_code: e.target.value }); }} style={selectStyle}>

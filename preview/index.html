@@ -121,13 +121,14 @@ function dashPanels() {
   return `<div class="panel" style="margin-top:12px" data-testid="collection-status"><b>수집·분류 현황</b> <span class="note">(수집 시점 스냅샷 · 기준일 ${esc(S.meta.generated_at.slice(0, 10))})</span>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-top:8px">
       <div><div class="note">발행기관별(상위)</div>${bars(d.by_org, tot)}</div><div><div class="note">자료 유형별</div>${bars(d.by_type, tot)}</div><div><div class="note">국가·지역별</div>${bars(d.by_country, tot)}</div></div>
+    ${d.reconcile ? `<div class="note" style="margin-top:8px" data-testid="reconcile"><b>자료 수 구성</b>: 수집 ${d.reconcile.collected_total}건 = 분야 분류 완료 ${d.reconcile.matched}건(분야별 합계 ${d.reconcile.field_sum}건) + 분류 보류 ${d.reconcile.pending_review}건 + 분류 미처리 ${d.reconcile.unprocessed}건. 핵심 이슈 중 후보주제가 없는 이슈 ${d.reconcile.issues_without_candidate}건(행정·공지성). ${esc(d.reconcile.note)}</div>` : ""}
     <p class="note" style="margin:8px 0 0">분류 방식: ${esc(d.classification_method)}. 이 화면의 숫자는 스냅샷 데이터에서 직접 센 값이며 실시간 수집 결과가 아닙니다.</p></div>`;
 }
 
 function viewGuide() {
   setActive("guide");
   const f = (c) => `#/news?field=${c}`;
-  $("#app").innerHTML = `<h1>시연 가이드 (공개 읽기 전용 화면)</h1><p class="sub">아래 순서대로 누르면 실제 수집 자료를 따라가며 둘러볼 수 있습니다. 이 화면은 조회 전용이며 저장·로그인·생성 기능은 로컬 통합 사이트에서만 동작합니다.</p>
+  $("#app").innerHTML = `<h1>시연 가이드 (공개 읽기 전용 화면)</h1><div class="panel" data-testid="demo-versions"><b>두 가지 공개 화면을 구분하세요.</b> ① <a href="../">기존 시연 화면(루트 주소)</a>은 제안용으로 만든 설명 화면이고, ② 지금 보는 <b>/preview/</b>는 실제 수집 자료를 스냅샷으로 담은 읽기 전용 화면입니다. 원문 링크가 열리지 않을 때는 아래를 확인하세요: <i>외부 사이트가 접속을 거부</i>하는 경우(기관 사이트 정책)와 <i>링크 자체 오류</i>는 구분해 표시합니다.</div><p class="sub">아래 순서대로 누르면 실제 수집 자료를 따라가며 둘러볼 수 있습니다. 이 화면은 조회 전용이며 저장·로그인·생성 기능은 로컬 통합 사이트에서만 동작합니다.</p>
   <div class="panel"><b>시나리오 A — 통신·방송·전파 정책동향</b><ol><li><a href="${f("bcast")}">방송·전파·위성 분야 열기</a> → FCC 등 공식 기관 자료 목록</li><li>카드 제목 클릭 → <b>공식 원문이 새 탭</b>으로 열림</li><li>'상세 보기' → 관련 이슈 → 후보주제의 추천 점수·산정 근거 확인</li></ol></div>
   <div class="panel"><b>시나리오 B — 기술·연구 동향 탐색</b><ol><li><a href="${f("ai")}">인공지능·데이터 분야 열기</a> → 검색창에 키워드 입력 후 정렬·기간 필터 적용</li><li>'상세 보기' → 같은 이슈의 관련 문서 비교</li><li><a href="#/candidates?field=ai">후보주제 목록</a>에서 점수·논쟁 가능성·검토 상태 확인</li></ol></div>
   <div class="panel"><b>시나리오 C — 시범 보고서·카드뉴스 결과 보기</b><ol><li><a href="#/outputs">시범 출력물</a>에서 후속 규정 반영 일반호(PDF·DOCX)와 카드뉴스(PPTX·PNG) 열기</li><li>모든 출력물은 <b>시범·내부용·IITP 미확인</b> 표시가 붙은 자료이며 실제 발간물이 아닙니다.</li></ol></div>
@@ -225,6 +226,9 @@ function viewCandidates(q) {
   <input name="q" placeholder="후보주제 검색" value="${esc(text)}" aria-label="후보주제 검색">
   <select name="sort" aria-label="정렬"><option value="score" ${sort === "score" ? "selected" : ""}>추천 점수순</option><option value="date" ${sort === "date" ? "selected" : ""}>발표일 최신순</option><option value="title" ${sort === "title" ? "selected" : ""}>제목순</option></select>
   <button class="btn primary">검색</button><span class="note" style="margin-left:auto" data-testid="result-count">총 ${rows.length}건</span></form>
+  ${S.priority && S.priority.items.length && !field && !status && !text ? `<details class="panel" open data-testid="priority-panel"><summary><b>우선 검토 후보 ${S.priority.items.length}건</b> <span class="note">(규칙 기반 선별 · IITP 공식 선정 아님)</span></summary>
+    <ul class="note" data-testid="priority-criteria">${S.priority.criteria.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
+    <ol>${S.priority.items.map((it) => { const c = byId.cand.get(it.id); return c ? `<li data-testid="priority-item"><a href="#/candidate/${c.id}">${esc(c.title)}</a> <span class="pill">${esc(fieldLabel(c.field))}</span> <b>${it.priority_score}</b><div class="note">선별 이유: ${esc(it.reasons.join(" · "))}${it.flags.length ? " · " + esc(it.flags.join(" · ")) : ""}</div></li>` : ""; }).join("")}</ol></details>` : ""}
   <div class="panel" style="padding:0;overflow:auto"><table><thead><tr><th>분야</th><th>제목</th><th>발표일</th><th>출처</th><th>추천 점수</th><th>내부 검토 상태</th></tr></thead><tbody>${rows.slice(0, 200).map((c) =>
     `<tr><td>${esc(fieldLabel(c.field))}</td><td><a href="#/candidate/${c.id}">${esc(c.title)}</a></td><td>${esc(c.announced || "-")}</td><td>${esc(c.org || "-")}</td>
     <td>${c.score ?? "-"}${c.score_partial ? ' <span class="pill warn">부분 평가</span>' : ""}</td><td><span class="pill">${esc(c.internal_status)}</span></td></tr>`).join("") ||

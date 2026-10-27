@@ -1,7 +1,9 @@
 "use client";
 
 import { Suspense, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import AuthFrame from "@/components/AuthFrame";
 import { apiFetch, getCurrentUser } from "@/lib/api";
 
 function LoginForm() {
@@ -17,10 +19,7 @@ function LoginForm() {
     setError(null);
     setLoading(true);
     try {
-      await apiFetch("/auth/login", {
-        method: "POST",
-        body: JSON.stringify({ email, password }),
-      });
+      await apiFetch("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
       const next = searchParams.get("next");
       const me = await getCurrentUser();
       const external = me.role === "author" || me.role === "ext_reviewer"; // 외부 전문가는 원고 포털만 사용한다
@@ -34,40 +33,15 @@ function LoginForm() {
   }
 
   return (
-    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <form
-        onSubmit={handleSubmit}
-        className="panel"
-        style={{ width: 360, display: "flex", flexDirection: "column", gap: 14 }}
-      >
-        <h1 style={{ fontSize: 19, fontWeight: 700, margin: 0 }}>TNP AI Platform</h1>
-        <p style={{ color: "var(--ink-muted)", fontSize: 13.5, margin: 0 }}>내부 연구원 전용 — 로그인이 필요합니다</p>
-        <label style={{ fontSize: 13, fontWeight: 700 }}>
-          이메일
-          <input
-            type="email"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            style={{ display: "block", width: "100%", marginTop: 6, padding: 9, borderRadius: 8, border: "1px solid var(--border)" }}
-          />
-        </label>
-        <label style={{ fontSize: 13, fontWeight: 700 }}>
-          비밀번호
-          <input
-            type="password"
-            required
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            style={{ display: "block", width: "100%", marginTop: 6, padding: 9, borderRadius: 8, border: "1px solid var(--border)" }}
-          />
-        </label>
-        {error && <div style={{ color: "var(--bad)", fontSize: 13 }}>{error}</div>}
-        <button type="submit" className="tbtn primary" disabled={loading}>
-          {loading ? "로그인 중..." : "로그인"}
-        </button>
+    <AuthFrame title="로그인" subtitle="연구원 계정으로 로그인하세요.">
+      <form onSubmit={handleSubmit}>
+        <label className="field">이메일<input type="email" required autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} /></label>
+        <label className="field">비밀번호<input type="password" required autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} /></label>
+        {error && <div role="alert" className="notice err" style={{ marginBottom: 12 }}>{error}</div>}
+        <button type="submit" className="tbtn primary" disabled={loading} style={{ width: "100%", padding: 11 }}>{loading ? "로그인 중..." : "로그인"}</button>
       </form>
-    </div>
+      <p style={{ fontSize: 13, textAlign: "center", margin: "16px 0 0" }}>계정이 없으신가요? <Link href="/register">회원가입</Link></p>
+    </AuthFrame>
   );
 }
 

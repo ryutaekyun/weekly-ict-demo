@@ -118,6 +118,12 @@ export function changeCandidateEvidence(id: string, document_id: string, action:
   return apiFetch(`/candidates/${id}/evidence`, { method: "POST", body: JSON.stringify({ document_id, action, note }) });
 }
 
+export type PriorityItem = { candidate_id: string; title: string; field_code: string; status: string; source_org: string | null; announced_date: string | null; total_score: number | null; priority_score: number; reasons: string[]; flags: string[]; evidence_count: number; evidence_with_text: number };
+export type PriorityReview = { criteria: string[]; total_candidates: number; excluded_count: number; items: PriorityItem[] };
+export function getPriorityCandidates(): Promise<PriorityReview> {
+  return apiFetch("/candidates/priority");
+}
+
 export function listCandidates(filters: { field_code?: string; status?: string; q?: string; assignee_user_id?: string; mine?: string } = {}): Promise<Candidate[]> {
   const params = new URLSearchParams();
   Object.entries(filters).forEach(([k, v]) => { if (v) params.set(k, v); });
@@ -137,9 +143,12 @@ export interface CurrentUser {
   id: string;
   email: string;
   display_name: string;
-  role: "researcher" | "reviewer" | "approver" | "admin" | "author" | "ext_reviewer";
+  role: "researcher" | "reviewer" | "approver" | "admin" | "author" | "ext_reviewer" | "source_admin";
   job_title: string | null;
   is_active: boolean;
+  approval_status: "pending" | "approved" | "rejected";
+  favorite_fields: string[];
+  last_login_at: string | null;
 }
 
 export function getCurrentUser(): Promise<CurrentUser> {
@@ -680,7 +689,7 @@ export function listFootnotes(manuscriptId: string): Promise<FootnoteOut[]> {
 
 export function createFootnote(manuscriptId: string, payload: {
   mark_id: string; anchor_text: string; source_url: string; source_document_id?: string;
-  source_org?: string; excerpt?: string; location_label?: string;
+  source_org?: string; excerpt?: string; location_label?: string; published_at?: string;
 }): Promise<FootnoteOut> {
   return apiFetch<FootnoteOut>(`/manuscripts/${manuscriptId}/footnotes`, { method: "POST", body: JSON.stringify(payload) });
 }
@@ -784,3 +793,39 @@ export async function fetchReportExportBlob(reportId: string, exportId: string):
   if (!res.ok) throw new Error("파일을 내려받을 수 없습니다");
   return res.blob();
 }
+
+
+// --- 회원가입·계정 관리 (Phase 4-1) ------------------------------------------
+export function registerUser(payload: { email: string; display_name: string; password: string; job_title?: string; invite_token?: string }): Promise<{ status: string; message: string }> {
+  return apiFetch("/auth/register", { method: "POST", body: JSON.stringify(payload) });
+}
+
+export function updateMyProfile(payload: { display_name?: string; job_title?: string; favorite_fields?: string[] }): Promise<CurrentUser> {
+  return apiFetch("/auth/me", { method: "PATCH", body: JSON.stringify(payload) });
+}
+
+export interface AdminUser {
+  id: string; email: string; display_name: string; job_title: string | null; role: string; is_active: boolean;
+  approval_status: string; registered_via: string; created_at: string; last_login_at: string | null;
+}
+export const listAdminUsers = (): Promise<AdminUser[]> => apiFetch("/admin/users");
+export const approveUser = (id: string, role?: string): Promise<AdminUser> => apiFetch(`/admin/users/${id}/approve`, { method: "POST", body: JSON.stringify(role ? { role } : {}) });
+export const rejectUser = (id: string): Promise<AdminUser> => apiFetch(`/admin/users/${id}/reject`, { method: "POST" });
+export const patchAdminUser = (id: string, body: { role?: string; is_active?: boolean }): Promise<AdminUser> => apiFetch(`/admin/users/${id}`, { method: "PATCH", body: JSON.stringify(body) });
+export const createInvite = (body: { email: string; role: string; valid_days?: number }): Promise<{ register_path: string; email: string; role: string; expires_at: string; note: string }> =>
+  apiFetch("/admin/invites", { method: "POST", body: JSON.stringify(body) });
+export const listInvites = (): Promise<{ id: string; email: string; role: string; expires_at: string; used: boolean }[]> => apiFetch("/admin/invites");
+
+export interface WorkDoc { id: string; title: string; org: string | null; country: string | null; field: string | null; published_at: string | null; origin_url: string }
+export interface WorkDashboard {
+  greeting_name: string; favorite_fields: string[];
+  kpi: { new_today: number; total_docs: number; pending_candidates: number; my_manuscripts: number; source_errors: number };
+  recent_docs: WorkDoc[]; favorite_docs: WorkDoc[];
+  issues: { id: string; title: string; field: string; document_count: number; last_activity: string | null }[];
+  priority: { id: string; title: string; field: string; score: number; flags: string[] }[];
+  my_tasks: { kind: "candidate" | "manuscript"; id: string; title: string; status: string }[];
+  review_requests: { id: string; title: string; status: string }[];
+  source_errors: { id: string; name: string; failures: number; needs_review: boolean }[];
+  history: { action: string; entity_type: string; entity_id: string; at: string }[];
+}
+export const getWorkDashboard = (): Promise<WorkDashboard> => apiFetch("/dashboard/work");

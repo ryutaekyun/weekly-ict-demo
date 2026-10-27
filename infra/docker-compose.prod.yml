@@ -1,0 +1,66 @@
+# TNP 실제 업무용 실행 구성 — 회사 PC/서버 1대에서 무료 소프트웨어만으로 실행한다.
+#   docker compose -f infra/docker-compose.prod.yml --env-file infra/.env.prod up -d --build
+# 주의: 이 구성은 Docker가 설치된 환경에서만 실행·검증할 수 있다(개발 PC에는 아직 미설치 — docs/DEPLOYMENT_GUIDE.md 참고).
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: tnp
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in infra/.env.prod}
+      POSTGRES_DB: tnp_platform
+    volumes:
+      - tnp_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tnp -d tnp_platform"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # 외부에 포트를 열지 않는다(내부 네트워크에서만 접근)
+
+  api:
+    build:
+      context: ../apps/api
+    restart: unless-stopped
+    environment:
+      APP_ENV: production
+      DATABASE_URL: postgresql+psycopg2://tnp:${POSTGRES_PASSWORD}@db:5432/tnp_platform
+      JWT_SECRET: ${JWT_SECRET:?set in infra/.env.prod}
+      COOKIE_SECURE: "true"
+      CORS_ORIGINS: '["https://${PUBLIC_HOST}"]'
+      EXPORT_DIR: /data/exports
+      JOURNAL_DIR: /data/journal
+    volumes:
+      - tnp_files:/data
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ../apps/web
+      args:
+        NEXT_PUBLIC_API_URL: /api
+    restart: unless-stopped
+    depends_on:
+      - api
+
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      PUBLIC_HOST: ${PUBLIC_HOST:?set in infra/.env.prod}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - web
+      - api
+
+volumes:
+  tnp_db_data:
+  tnp_files:
+  caddy_data:

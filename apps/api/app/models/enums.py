@@ -22,6 +22,13 @@ class UserRole(str, enum.Enum):
     ADMIN = "admin"
     AUTHOR = "author"  # 외부 집필 전문가(주간기술동향지 원고 포털 전용)
     EXT_REVIEWER = "ext_reviewer"  # 외부 검토 전문가(배정된 원고 검토 포털 전용)
+    SOURCE_ADMIN = "source_admin"  # 정보원 관리자(정보원 등록·수집 관리)
+
+
+class ApprovalStatus(str, enum.Enum):
+    PENDING = "pending"  # 가입 후 관리자 승인 대기 — 내부 업무자료 접근 불가
+    APPROVED = "approved"
+    REJECTED = "rejected"
 
 
 class CandidateStatus(str, enum.Enum):

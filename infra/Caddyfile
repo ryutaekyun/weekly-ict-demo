@@ -1,0 +1,16 @@
+# 한 주소로 화면(/)과 API(/api)를 제공한다. PUBLIC_HOST 가 공인 도메인이면 Let's Encrypt 인증서를 무료로 자동 발급한다.
+# 사내망 전용 이름(예: tnp-platform.local)이면 Caddy 내부 인증서를 쓰며, 각 PC가 Caddy 루트 인증서를 신뢰하도록 등록해야 한다.
+{$PUBLIC_HOST} {
+	encode gzip
+	handle_path /api/* {
+		reverse_proxy api:8000
+	}
+	handle {
+		reverse_proxy web:3000
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+	}
+}

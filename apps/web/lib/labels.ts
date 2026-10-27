@@ -88,8 +88,9 @@ export const DISPUTE_STATUS_LABELS: Record<string, string> = {
 export const ROLE_LABELS: Record<string, string> = {
   researcher: "연구원",
   reviewer: "검토자",
-  approver: "최종승인자",
-  admin: "관리자",
+  approver: "편집·승인 담당자",
+  admin: "시스템 관리자",
+  source_admin: "정보원 관리자",
   author: "외부 집필 전문가",
   ext_reviewer: "외부 검토 전문가",
 };

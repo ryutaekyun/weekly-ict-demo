@@ -1,4 +1,5 @@
 from app.models.user import User
+from app.models.user_invite import UserInvite
 from app.models.followup import FollowupNotice, FollowupAck
 from app.models.journal import JournalSetting, JournalIssue, JournalScheduleStep, JournalExpert, JournalCommission, JournalCommissionEvent, JournalManuscript, JournalVersion, JournalAttachment, JournalAssignment, JournalComment, JournalDecision, JournalPlagiarism, JournalIssueItem, JournalExport
 from app.models.source import Source

@@ -412,3 +412,26 @@ def test_manuscript_lint_checks_values_roles_duplicates_and_never_changes_the_ma
     after = client.get(f"/manuscripts/{ms['id']}", headers=h).json()
     assert after["body"] == body_text and after["lock_version"] == saved["lock_version"]  # 점검은 원고를 바꾸지 않는다
     assert all(f["verification_status"] == "not_verified" for f in client.get(f"/manuscripts/{ms['id']}/footnotes", headers=h).json())
+
+
+def test_dashboard_counts_reconcile(client, db_session):
+    """전체 자료 = 관련 + 관련성 낮음 + 분류 보류 + 미처리, 관련 = 분야별 합계 + 주 분야 미지정."""
+    from tests.conftest import auth_headers, make_user
+    from app.models.user import UserRole
+    make_user(db_session, "recon-admin@example.com", UserRole.ADMIN)
+    s = client.get("/dashboard/summary", headers=auth_headers(client, "recon-admin@example.com")).json()
+    assert s["total_documents"] == s["matched_documents"] + s["low_relevance_documents"] + s["pending_review_documents"] + s["unclassified_documents"]
+    assert s["matched_documents"] == sum(f["document_count"] for f in s["by_field"]) + s["matched_without_field"]
+    assert s["issue_cluster_without_candidate"] >= 0
+
+
+def test_priority_candidates_exclude_admin_notices_and_cap(client, db_session):
+    from app.services.candidate_priority import admin_notice_reason, MAX_ITEMS
+    assert admin_notice_reason("Radio Broadcasting Services; Selmer, Tennessee")
+    assert admin_notice_reason("Petition for Reconsideration of Action in Rulemaking Proceeding")
+    assert admin_notice_reason("Upper C-Band (3.98-4.2 GHz); Expanding Flexible Use") is None
+    make_user(db_session, "prio-admin@example.com", UserRole.ADMIN)
+    r = client.get("/candidates/priority", headers=auth_headers(client, "prio-admin@example.com"))
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body["items"]) <= MAX_ITEMS and body["criteria"]

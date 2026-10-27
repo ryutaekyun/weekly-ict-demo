@@ -162,6 +162,19 @@ def build_snapshot(db: Session) -> dict:
         "with_original_text": sum(1 for d in docs_out if d["original_secured"]), "multi_document_issues": sum(1 for i in issues_out if len(i["documents"]) >= 2),
         "issues_needing_review": None, "classification_method": "키워드·규칙 기반 자동 분류(연구원 검토 필요) — 생성형 AI 분류가 아님",
     }
+    from app.services.candidate_priority import priority_review
+    pr = priority_review(db)
+    cand_ids = {c["id"] for c in cands_out}
+    priority = {"criteria": pr["criteria"], "items": [{"id": i["candidate_id"], "priority_score": i["priority_score"], "reasons": i["reasons"], "flags": i["flags"]} for i in pr["items"] if i["candidate_id"] in cand_ids]}
+    total_db = db.scalar(select(func.count()).select_from(SourceDocument)) or 0
+    cls_rel = {k.value if hasattr(k, "value") else k: v for k, v in db.execute(select(DocumentClassification.relevance, func.count()).group_by(DocumentClassification.relevance)).all()}
+    with_cand = {c["issue_id"] for c in cands_out}
+    dashboard["reconcile"] = {
+        "collected_total": total_db, "matched": cls_rel.get("matched", 0), "pending_review": cls_rel.get("pending_review", 0), "low_relevance": cls_rel.get("low_relevance", 0),
+        "unprocessed": total_db - sum(cls_rel.values()), "shown_matched": len(docs_out), "test_or_demo_excluded": cls_rel.get("matched", 0) - len(docs_out),
+        "field_sum": sum(counts.values()), "issues_without_candidate": sum(1 for i in issues_out if i["id"] not in with_cand),
+        "note": "공개 화면의 자료 수는 '분야 분류가 끝난 관련 자료'만 센 값입니다. 분류 보류·미처리 자료와 시험용 자료는 공개 화면에서 제외했습니다(숫자를 맞추려고 재분류하지 않았습니다).",
+    }
     snapshot = {
         "meta": {
             "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -173,7 +186,7 @@ def build_snapshot(db: Session) -> dict:
         },
         "fields": [{"code": code, "label": label, "count": counts[code]} for code, label in FIELD_LABELS.items()],
         "doc_types": DOC_TYPE_LABELS,
-        "documents": docs_out, "issues": issues_out, "candidates": cands_out, "dashboard": dashboard,
+        "documents": docs_out, "issues": issues_out, "candidates": cands_out, "dashboard": dashboard, "priority": priority,
     }
     snapshot = _scrub(snapshot)
     assert_no_personal_data(snapshot)
