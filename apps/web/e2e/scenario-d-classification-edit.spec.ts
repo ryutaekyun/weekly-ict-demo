@@ -7,6 +7,9 @@ test("시나리오 D — 문서 선택 → 분류 수정 → 저장 → 새로�
   await page.goto("/documents?relevance=matched"); // 분류가 끝난 자료만 대상으로 한다(미처리 자료에 분류 저장을 눌러 데이터를 오염시키지 않도록)
   await page.getByRole("link", { name: /^상세 분석/ }).first().click(); // 제목은 외부 원문(새 탭), 상세 분석은 플랫폼 내부 화면
 
+  // 상세 화면의 분석 데이터가 모두 불러와진 뒤(현재 판정 문구가 보인 뒤)에 값을 읽고 바꾼다 — 로딩 중 기본값을 저장하는 경쟁 상태 방지
+  await expect(page.getByText(/^현재: /).last()).toBeVisible();
+  await expect(page.locator("form", { hasText: "실무 활용성 평가" }).locator("select")).toBeEnabled();
   const ratingSelect = page.locator("form", { hasText: "실무 활용성 평가" }).locator("select");
   const current = await ratingSelect.inputValue();
   const next = current === "priority" ? "needs_more_info" : "priority";
