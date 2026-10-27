@@ -89,7 +89,7 @@ def make_doc(db, *, title, field, url="https://example.org/doc", country="US", o
         db.refresh(src)
     published = datetime.now(timezone.utc) - timedelta(days=days_ago)
     doc = SourceDocument(source_id=src.id, title=title, origin_url=url, collected_at=datetime.now(timezone.utc), raw_text="",
-                         content_hash=f"{title}-{url}", status=SourceDocumentStatus.COLLECTED, field_code=src.field_code,
+                         content_hash=__import__("hashlib").sha256(f"{title}-{url}".encode()).hexdigest(), status=SourceDocumentStatus.COLLECTED, field_code=src.field_code,
                          collection_method=SourceType.API, document_type=DocumentType.POLICY, published_at=published, country_code=country)
     db.add(doc)
     db.commit()
