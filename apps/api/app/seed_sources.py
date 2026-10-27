@@ -23,12 +23,13 @@ VERIFIED_SOURCES = [
     # --- 기존(1단계에서 확보, 재검증 완료) ---
     (
         FieldCode.AI,
-        "arXiv cs.AI",
-        "Cornell University (arXiv)",
+        "arXiv API — cs.AI 최신 논문",
+        "arXiv (Cornell University)",
         "INT",
-        "http://export.arxiv.org/rss/cs.AI",
-        SourceType.RSS,
-        None,
+        # arXiv RSS(export.arxiv.org/rss)는 robots.txt 로 자동 수집이 허용되지 않아 공식 API(Atom)를 쓴다. 호출 간격 3초 준수.
+        "https://export.arxiv.org/api/query?search_query=cat:cs.AI&sortBy=submittedDate&sortOrder=descending&max_results=30",
+        SourceType.API,
+        "arxiv_api",
         False,  # 프리프린트 저장소 — 1차 정부/표준화 출처 아님
         2,
     ),

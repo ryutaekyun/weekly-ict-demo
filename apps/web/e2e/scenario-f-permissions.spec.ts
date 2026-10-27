@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 import { login, logout, E2E_ADMIN, E2E_RESEARCHER } from "./helpers";
 
 test("시나리오 F — 일반 연구원은 관리자 전용 기능이 차단되고, 허용된 기능(검토의견)은 실행된다", async ({ page }) => {

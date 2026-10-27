@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String, Text, Uuid
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -46,6 +46,11 @@ class SourceDocument(Base, UUIDPKMixin, TimestampMixin):
     # 문서의 '실제' 분야 — 출처의 고정 분야(Source.field_code)와 다를 수 있다.
     # 이번 단계에서는 수집 시점에 출처의 field_code를 그대로 넣어두고, 실제 자동분류는 Phase 2-2에서 구현한다.
     field_code: Mapped[FieldCode] = mapped_column(Enum(FieldCode, native_enum=False), nullable=False)
-    collection_method: Mapped[SourceType] = mapped_column(Enum(SourceType, native_enum=False), nullable=False)
+    collection_method: Mapped[SourceType] = mapped_column(Enum(SourceType, native_enum=False, length=20), nullable=False)
     is_peer_reviewed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)  # 논문 외 유형은 null
     requires_primary_source_check: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # ---- Phase 4-2: 중복·버전 식별자 ----
+    external_id: Mapped[str | None] = mapped_column(String(255), index=True, nullable=True)  # 공식 문서번호·arXiv ID 등 원문 고유 ID
+    normalized_url: Mapped[str | None] = mapped_column(String(1000), index=True, nullable=True)
+    is_latest: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1", nullable=False)  # 같은 문서의 개정판 중 최신본 여부
+    version_no: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)

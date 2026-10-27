@@ -1,5 +1,6 @@
 import fs from "node:fs";
-import { test, expect, type Page } from "@playwright/test";
+import { type Page } from "@playwright/test";
+import { test, expect } from "./fixtures";
 import { login, logout, E2E_ADMIN, E2E_RESEARCHER, E2E_REVIEWER } from "./helpers";
 
 test.setTimeout(300_000);

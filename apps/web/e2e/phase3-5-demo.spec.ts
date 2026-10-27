@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, API_PORT } from "./fixtures";
 import { login, E2E_ADMIN } from "./helpers";
 
 // Phase 3-5 — 기존 기능이 실제 브라우저에서 끝까지 연결되는지 확인한다(시나리오 이름은 3-5 지시서의 A–L 기준).
@@ -29,7 +29,7 @@ test("3-5 A·B — 분야 선택 → 실제 뉴스 목록(건수=표시 행) →
 
 test("3-5 C — 원문 주소가 없는 자료는 클릭이 막히고 사유가 표시된다(링크 오류와 접속 제한을 구분)", async ({ page }) => {
   await login(page, E2E_ADMIN);
-  await page.route((u) => u.port === "8000" && u.pathname === "/documents", async (route) => {
+  await page.route((u) => u.port === API_PORT && u.pathname === "/documents", async (route) => {
     const res = await route.fetch();
     const body = await res.json();
     if (Array.isArray(body.items) && body.items.length > 0) {

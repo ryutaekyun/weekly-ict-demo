@@ -86,3 +86,11 @@ def _paid_lock_open_for_tests(request, monkeypatch):
         from app.services import ai_service
 
         monkeypatch.setattr(ai_service, "PAID_AI_DISABLED", False)
+
+
+@pytest.fixture(autouse=True)
+def _reset_ratelimit():
+    from app.core import ratelimit
+    ratelimit.reset()
+    yield
+    ratelimit.reset()

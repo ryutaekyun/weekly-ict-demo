@@ -10,7 +10,7 @@
 | DB | PostgreSQL 16 | 외부 포트 비공개, 볼륨 `tnp_db_data`에 영속 저장 |
 | 파일 | 볼륨 `tnp_files` | 생성한 DOCX/PDF·주간기술동향지 첨부 |
 | HTTPS | Caddy | 공인 도메인이면 Let's Encrypt 무료 자동 발급, 사내 이름이면 내부 인증서 |
-| 예약 수집·번역 작업자 | Python | Phase 4-2·4-3에서 추가(현재 없음) |
+| 수집 작업자 | Python(`python -m app.worker`) | Phase 4-2 구현 — 로컬 검증, 서버(Docker) 상시 구동은 미검증. 번역 작업자는 4-3 |
 
 구성 파일: `infra/docker-compose.prod.yml`, `infra/Caddyfile`, `infra/.env.prod.example`, `infra/backup.sh`, `infra/restore.sh`.
 
@@ -39,6 +39,11 @@
 - 인증정보(.env, 백업, DB)는 저장소에 올리지 않는다(`.gitignore`). 과거 커밋 노출 점검 결과는 최종 보고에 기재한다.
 
 - 저장소 이력 점검(2026-10-27): 모든 브랜치 커밋에서 API 키·개인키·토큰 형태를 검색한 결과 **실제 키는 없었고**, 테스트용 가짜 문자열(`sk-ant-fake-…`)만 있었다. 따라서 폐기·교체가 필요한 노출 인증정보는 발견되지 않았다. 자동 테스트용 고정 비밀번호(`e2e-*@example.com`)는 저장소에 있으나 테스트 DB 전용이며, 운영(`APP_ENV=production`)에서는 해당 계정 생성 스크립트가 실행되지 않도록 막았다.
+
+## 6-1. 수집 작업자 운영
+- 개발 PC(Windows): `scripts\start-worker.ps1`(상시) 또는 작업 스케줄러에서 `apps\api\.venv\Scripts\python -m app.worker --once` 를 15~60분마다 실행. 로그: `apps/api/storage/logs/worker.log`.
+- Docker: `docker-compose.prod.yml`의 `worker` 서비스가 같은 이미지로 `python -m app.worker` 를 실행한다(미검증).
+- 서버 설정: `COLLECTOR_ALLOW_PRIVATE_HOSTS` 는 자동 테스트 전용이며 `APP_ENV=production` 에서는 켜면 서버가 시작되지 않는다.
 
 ## 7. 미검증·미구현
 - Docker/PostgreSQL 실서버 기동, HTTPS 인증서 발급, 외부 PC 접속, 서버 재시작 후 데이터 유지, 백업·복원 시험 — **이 PC에 Docker·WSL이 없어 실행하지 못했다.** 사용자가 서버(또는 PC)와 Docker 설치를 승인하면 같은 구성으로 검증한다.

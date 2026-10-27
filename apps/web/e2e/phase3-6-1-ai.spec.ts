@@ -1,4 +1,5 @@
-import { test, expect, type Page } from "@playwright/test";
+import { type Page } from "@playwright/test";
+import { test, expect, API_PORT } from "./fixtures";
 import { login, E2E_ADMIN, E2E_REVIEWER } from "./helpers";
 
 // Phase 3-6.1 — AI 삽입 위치·취소·원문 변경 재검토·오류 표시·단가/연결 진단 화면.
@@ -8,7 +9,7 @@ import { login, E2E_ADMIN, E2E_REVIEWER } from "./helpers";
 async function api<T = any>(page: Page, method: string, path: string, body?: unknown): Promise<{ status: number; json: T }> {
   return page.evaluate(async ({ method, path, body }) => {
     const csrf = document.cookie.match(/(?:^|; )csrf_token=([^;]*)/)?.[1];
-    const res = await fetch(`http://localhost:8000${path}`, {
+    const res = await fetch(`${(window as unknown as { E2E_API: string }).E2E_API}${path}`, {
       method, credentials: "include",
       headers: { "Content-Type": "application/json", ...(csrf ? { "x-csrf-token": decodeURIComponent(csrf) } : {}) },
       body: body ? JSON.stringify(body) : undefined,
@@ -114,8 +115,8 @@ test("3-6.1 A·B — 원문 변경 시 삽입된 AI 문장에 '원문 변경·�
       new_sentence: "The effective date is now March 20, 2025.", similarity: 0.62, removed_facts: ["2025-02-18"], added_facts: ["2025-03-20"], stale_in_sentence: ["2025-02-18"], last_review: null },
   };
   let reviewBody: any = null;
-  await page.route((u) => u.port === "8000" && u.pathname === `/ai/manuscripts/${mid}/insertions`, (route) => route.fulfill({ json: [row] }));
-  await page.route((u) => u.port === "8000" && u.pathname.endsWith("/review") && u.pathname.includes("/ai/insertions/"), async (route) => {
+  await page.route((u) => u.port === API_PORT && u.pathname === `/ai/manuscripts/${mid}/insertions`, (route) => route.fulfill({ json: [row] }));
+  await page.route((u) => u.port === API_PORT && u.pathname.endsWith("/review") && u.pathname.includes("/ai/insertions/"), async (route) => {
     reviewBody = JSON.parse(route.request().postData() ?? "{}");
     await route.fulfill({ json: { ...row, needs_review: false, change: null, history: [{ resolution: reviewBody.resolution, label: "수정 반영 완료", note: reviewBody.note, reviewer_id: "u", reviewed_at: new Date().toISOString(), reviewed_source_hash: "h2" }] } });
   });
@@ -151,7 +152,7 @@ test("3-6.1 H — 공급자 오류는 종류별 정확한 상태·메시지로 �
   ];
   const panel = page.getByTestId("ai-panel-issue");
   for (const [code, message, title] of cases) {
-    await page.route((u) => u.port === "8000" && u.pathname === "/ai/analyses" , async (route) => {
+    await page.route((u) => u.port === API_PORT && u.pathname === "/ai/analyses" , async (route) => {
       if (route.request().method() !== "POST") return route.fallback();
       await route.fulfill({ json: { id: "x", kind: "issue", status: "failed", error_code: code, error_message: message, provider_request_sent: true, verification_status: "ai_unverified", input_documents: [], notes: [], stats: { total: 0, facts: 0, facts_without_valid_evidence: 0, semantic_risk: 0, ratio_without_valid_evidence: 0, researcher_verified: 0 } } });
     });
@@ -161,14 +162,14 @@ test("3-6.1 H — 공급자 오류는 종류별 정확한 상태·메시지로 �
     await expect(panel.getByTestId("ai-state")).toHaveText("분석 실패");
     await expect(panel.getByTestId("ai-error")).toContainText(title);
     await expect(panel.getByTestId("ai-error")).toContainText("비용이 발생했을 수 있습니다");
-    await page.unroute((u) => u.port === "8000" && u.pathname === "/ai/analyses").catch(() => undefined);
+    await page.unroute((u) => u.port === API_PORT && u.pathname === "/ai/analyses").catch(() => undefined);
   }
 });
 
 test("3-6.1 I — 단가 미설정이면 비용을 '계산 불가'로 표시하고(0원 아님), 설정 화면에서 연결 미검증·사용량·단가표를 확인한다", async ({ page }) => {
   await login(page, E2E_ADMIN);
   const issueId = await findMultiDocIssue(page);
-  await page.route((u) => u.port === "8000" && u.pathname === "/ai/estimate", async (route) => {
+  await page.route((u) => u.port === API_PORT && u.pathname === "/ai/estimate", async (route) => {
     const res = await route.fetch();
     const body = await res.json();
     await route.fulfill({ response: res, json: { ...body, est_cost_usd: null, price_known: false, pricing_version: null } });
@@ -178,7 +179,7 @@ test("3-6.1 I — 단가 미설정이면 비용을 '계산 불가'로 표시하�
   const again = panel.getByRole("button", { name: "다시 분석" });
   if ((await again.count()) > 0) await again.click(); else await panel.getByTestId("ai-run").click();
   await expect(panel.getByTestId("ai-cost-unknown")).toContainText("계산 불가");
-  await page.unroute((u) => u.port === "8000" && u.pathname === "/ai/estimate").catch(() => undefined);
+  await page.unroute((u) => u.port === API_PORT && u.pathname === "/ai/estimate").catch(() => undefined);
 
   await page.goto("/settings");
   const admin = page.getByTestId("ai-admin-panel");

@@ -1,4 +1,5 @@
-import { test, expect, type Page } from "@playwright/test";
+import { type Page } from "@playwright/test";
+import { test, expect, API } from "./fixtures";
 import { login, E2E_ADMIN } from "./helpers";
 
 // Phase 3-7 — 무료 시연 플랫폼: 분야 탐색 → 원문 → 이슈 → 후보 검토 → 직접 집필(원문 작업대·작성 점검) → 공개 /preview/ 읽기 전용 화면, 메뉴 전수 점검.
@@ -9,7 +10,7 @@ const PREVIEW = "http://localhost:4173/index.html";
 async function api<T = any>(page: Page, method: string, path: string, body?: unknown): Promise<{ status: number; json: T }> {
   return page.evaluate(async ({ method, path, body }) => {
     const csrf = document.cookie.match(/(?:^|; )csrf_token=([^;]*)/)?.[1];
-    const res = await fetch(`http://localhost:8000${path}`, {
+    const res = await fetch(`${(window as unknown as { E2E_API: string }).E2E_API}${path}`, {
       method, credentials: "include",
       headers: { "Content-Type": "application/json", ...(csrf ? { "x-csrf-token": decodeURIComponent(csrf) } : {}) },
       body: body ? JSON.stringify(body) : undefined,

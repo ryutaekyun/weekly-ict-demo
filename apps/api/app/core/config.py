@@ -24,6 +24,12 @@ class Settings(BaseSettings):
     # 주간기술동향지 외부 저자 원고·첨부 파일 저장 위치(서버 로컬, 공개 저장소에 올라가지 않음)
     journal_dir: str = "./storage/journal"
 
+    # 수집기 안전 설정: 사설·내부망 주소 수집은 기본 금지. 자동 테스트용 로컬 서버에서만 true 로 켠다(운영에서는 켤 수 없음)
+    collector_allow_private_hosts: bool = False
+    collector_max_response_bytes: int = 8 * 1024 * 1024
+    collector_job_timeout_seconds: int = 600
+    collector_stale_job_seconds: int = 180
+
     max_failed_login_attempts: int = 5
     login_lockout_minutes: int = 15
 
@@ -32,6 +38,8 @@ class Settings(BaseSettings):
         if self.app_env == "production":
             if self.jwt_secret == "change-me-in-env" or len(self.jwt_secret) < 32:
                 raise ValueError("운영 환경에서는 JWT_SECRET을 32자 이상의 무작위 값으로 설정해야 합니다")
+            if self.collector_allow_private_hosts:
+                raise ValueError("운영 환경에서는 COLLECTOR_ALLOW_PRIVATE_HOSTS 를 켤 수 없습니다")
             if not self.cookie_secure:
                 raise ValueError("운영 환경에서는 COOKIE_SECURE=true(HTTPS)여야 합니다")
         return self

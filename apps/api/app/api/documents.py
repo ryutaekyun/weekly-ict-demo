@@ -83,6 +83,7 @@ def _document_list_item(row) -> DocumentListItemOut:
         value_rating=value_assessment.rating if value_assessment else None,
         extraction_status=full_text.extraction_status if full_text else None,
         issue_cluster_id=issue_membership.issue_cluster_id if issue_membership else None,
+        language=doc.language, version_no=doc.version_no or 1, is_latest=bool(doc.is_latest), external_id=doc.external_id,
     )
 
 
@@ -97,6 +98,8 @@ def list_documents(
     published_after: datetime | None = None,
     published_before: datetime | None = None,
     q: str | None = None,
+    language: str | None = None,
+    collected_after: datetime | None = None,
     extraction_status: ExtractionStatus | None = None,
     has_full_text: bool | None = None,
     has_issue: bool | None = None,
@@ -110,7 +113,11 @@ def list_documents(
 ):
     """전체 수집자료 검색·필터·페이지네이션. 분야 필터는 출처 고정 분야(SourceDocument.field_code)가
     아니라 document_classifications.primary_field_code를 기준으로 한다."""
-    stmt = _document_list_query()
+    stmt = _document_list_query().where(SourceDocument.is_latest.is_(True))  # 같은 문서의 개정판은 최신본만 목록에 보이고, 이전 버전은 상세의 버전 이력에 보존된다
+    if language is not None:
+        stmt = stmt.where(SourceDocument.language == language)
+    if collected_after is not None:
+        stmt = stmt.where(SourceDocument.collected_at >= collected_after)
     if field_code is not None:
         stmt = stmt.where(DocumentClassification.primary_field_code == field_code)
     if country_code is not None:
@@ -175,7 +182,9 @@ def document_facets(db: Session = Depends(get_db), _: User = Depends(get_current
     orgs = db.execute(select(Source.id, Source.org_name, func.count(SourceDocument.id)).join(SourceDocument, SourceDocument.source_id == Source.id)
                       .group_by(Source.id, Source.org_name).order_by(func.count(SourceDocument.id).desc())).all()
     lo, hi = db.execute(select(func.min(SourceDocument.published_at), func.max(SourceDocument.published_at))).one()
+    langs = db.execute(select(SourceDocument.language, func.count()).where(SourceDocument.language.is_not(None)).group_by(SourceDocument.language).order_by(func.count().desc())).all()
     return {
+        "languages": [{"code": c, "count": n} for c, n in langs],
         "countries": [{"code": c, "count": n} for c, n in countries], "sources": [{"id": str(i), "name": name, "count": n} for i, name, n in orgs],
         "published_min": lo.isoformat() if lo else None, "published_max": hi.isoformat() if hi else None,
     }

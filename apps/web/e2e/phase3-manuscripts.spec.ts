@@ -1,4 +1,5 @@
-import { test, expect, type Page } from "@playwright/test";
+import { type Page } from "@playwright/test";
+import { test, expect, newCtx } from "./fixtures";
 import { login, logout, E2E_ADMIN, E2E_RESEARCHER, E2E_REVIEWER } from "./helpers";
 
 async function startManuscript(page: Page): Promise<string> {
@@ -122,9 +123,9 @@ test("시나리오 E — 작성자 제출 → 검토자 수정요청 → 의견 
 });
 
 test("시나리오 F — 동시 수정 충돌 감지 및 권한 없는 사용자 차단", async ({ browser }) => {
-  const ctx1 = await browser.newContext({ baseURL: "http://localhost:3000" });
-  const ctx2 = await browser.newContext({ baseURL: "http://localhost:3000" });
-  const ctx3 = await browser.newContext({ baseURL: "http://localhost:3000" });
+  const ctx1 = await newCtx(browser);
+  const ctx2 = await newCtx(browser);
+  const ctx3 = await newCtx(browser);
   const p1 = await ctx1.newPage();
   const p2 = await ctx2.newPage();
   const p3 = await ctx3.newPage();

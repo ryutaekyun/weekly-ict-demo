@@ -1,4 +1,5 @@
-import { test, expect, type Page } from "@playwright/test";
+import { type Page } from "@playwright/test";
+import { test, expect, newCtx, API_PORT } from "./fixtures";
 import { login, E2E_ADMIN, E2E_REVIEWER } from "./helpers";
 
 // Phase 3-6 — AI 분석 화면 E2E. 서버는 AI_PROVIDER=mock·AI_ALLOW_MOCK=1·AI_MOCK_FLAWS=1 로 띄운 모의 공급자를 쓴다
@@ -7,7 +8,7 @@ import { login, E2E_ADMIN, E2E_REVIEWER } from "./helpers";
 async function api<T = any>(page: Page, method: string, path: string, body?: unknown): Promise<{ status: number; json: T }> {
   return page.evaluate(async ({ method, path, body }) => {
     const csrf = document.cookie.match(/(?:^|; )csrf_token=([^;]*)/)?.[1];
-    const res = await fetch(`http://localhost:8000${path}`, {
+    const res = await fetch(`${(window as unknown as { E2E_API: string }).E2E_API}${path}`, {
       method, credentials: "include",
       headers: { "Content-Type": "application/json", ...(csrf ? { "x-csrf-token": decodeURIComponent(csrf) } : {}) },
       body: body ? JSON.stringify(body) : undefined,
@@ -85,7 +86,7 @@ test("3-6 A·B·H — 공식 원문 선택 → AI 분석 요청 → 결과 저�
 test("3-6 C — AI(모의 포함) 미설정 상태: 가짜 결과 없이 '규칙 기반 자동 분석' 안내만 보이고 규칙 기반 화면은 그대로 동작한다", async ({ page }) => {
   await login(page, E2E_ADMIN);
   const doc = await pickDocWithText(page, 1);
-  await page.route((u) => u.port === "8000" && u.pathname === "/ai/status", (route) =>
+  await page.route((u) => u.port === API_PORT && u.pathname === "/ai/status", (route) =>
     route.fulfill({ json: { configured: false, provider: null, model: null, is_mock: false, paid_locked: true, daily_limit_per_user: 30, connection: "not_configured", connection_note: "", config_gaps: [], require_approval: false, max_cost_per_request_usd: null, message: "이 시연 버전은 유료 AI를 사용하지 않습니다" } }));
   await page.goto(`/documents/${doc.id}`);
   const panel = page.getByTestId("ai-panel-document");
@@ -177,7 +178,7 @@ test("3-6 I·J — 권한: 검토자는 AI 호출 불가, 같은 원문 버전 �
   await expect(page.getByText("이전 분석 결과를 다시 보여줍니다")).toBeVisible();
   await expect(panel.getByTestId("ai-state")).toContainText("분석 완료");
   // I: 검토자(reviewer) 계정은 AI 분석을 요청할 수 없다
-  const ctx = await browser.newContext();
+  const ctx = await newCtx(browser);
   const p2 = await ctx.newPage();
   await login(p2, E2E_REVIEWER);
   const denied = await api(p2, "POST", "/ai/analyses", { kind: "document", target_id: doc.id, confirm_cost: true });

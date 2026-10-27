@@ -117,3 +117,11 @@ def test_production_refuses_unsafe_settings():
     with pytest.raises(ValidationError):
         Settings(app_env="production", jwt_secret="x" * 40, cookie_secure=False)
     Settings(app_env="production", jwt_secret="x" * 40, cookie_secure=True)  # 안전한 설정은 통과
+
+
+def test_register_rate_limit_per_ip(client, db_session):
+    from app.core import ratelimit
+    ratelimit.reset()
+    codes = [_register(client, f"rl{i}@example.com").status_code for i in range(22)]
+    assert codes[:20] == [201] * 20 and codes[20:] == [429, 429]
+    ratelimit.reset()

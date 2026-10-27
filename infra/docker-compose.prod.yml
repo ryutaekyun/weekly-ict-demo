@@ -36,6 +36,25 @@ services:
       db:
         condition: service_healthy
 
+  worker:
+    build:
+      context: ../apps/api
+    restart: unless-stopped
+    command: ["python", "-m", "app.worker"]
+    environment:
+      APP_ENV: production
+      DATABASE_URL: postgresql+psycopg2://tnp:${POSTGRES_PASSWORD}@db:5432/tnp_platform
+      JWT_SECRET: ${JWT_SECRET:?set in infra/.env.prod}
+      COOKIE_SECURE: "true"
+      EXPORT_DIR: /data/exports
+    volumes:
+      - tnp_files:/data
+    depends_on:
+      db:
+        condition: service_healthy
+      api:
+        condition: service_started
+
   web:
     build:
       context: ../apps/web

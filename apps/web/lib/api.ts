@@ -158,6 +158,9 @@ export function getCurrentUser(): Promise<CurrentUser> {
 // --- 문서(수집자료) --------------------------------------------------------
 
 export interface DocumentListItem {
+  language?: string | null;
+  version_no?: number;
+  external_id?: string | null;
   id: string;
   title: string;
   origin_url: string;
@@ -220,6 +223,7 @@ export function listDocuments(filters: DocumentFilters = {}): Promise<DocumentLi
 
 export interface DocumentFacets {
   countries: { code: string; count: number }[];
+  languages?: { code: string; count: number }[];
   sources: { id: string; name: string; count: number }[];
   published_min: string | null;
   published_max: string | null;
@@ -455,6 +459,34 @@ export interface SourceOut {
   last_attempted_at: string | null;
   last_successful_collection_at: string | null;
   created_at: string;
+  interval_minutes: number;
+  min_request_interval_seconds: number;
+  respect_robots: boolean;
+  access_status: string;
+  access_label: string;
+  access_note: string | null;
+  last_new_count: number;
+  config_json: string | null;
+  description: string | null;
+}
+
+export interface SourceInput {
+  name: string; org_name: string; field_code: string; url: string; source_type: string; api_provider?: string | null; country_code?: string | null;
+  is_primary_source?: boolean; interval_minutes?: number; min_request_interval_seconds?: number; respect_robots?: boolean; config_json?: string | null; description?: string | null;
+}
+
+export interface CollectionJob {
+  id: string; source_id: string; status: "queued" | "running" | "succeeded" | "failed" | "cancelled" | "timeout" | "interrupted"; trigger: string; stage: string | null;
+  created_at: string; started_at: string | null; finished_at: string | null;
+  items_found: number; items_new: number; items_duplicate: number; items_updated: number; items_failed: number; items_classified: number;
+  error_type: string | null; error_message: string | null; cancel_requested: boolean;
+}
+
+export interface ConnectionTestResult { ok: boolean; found: number; access_status: string; message: string; detail?: string; error_type?: string; sample: { title: string; link: string; published_at: string | null; external_id: string | null }[] }
+
+export interface CollectionStatus {
+  last_collected_at: string | null; new_last_24h: number; to_review: number; failed_sources: number; active_sources: number;
+  running_jobs: { id: string; source_id: string; status: string; stage: string | null }[];
 }
 
 export interface CollectionRunOut {
@@ -484,9 +516,19 @@ export function listSourceRuns(sourceId: string): Promise<CollectionRunOut[]> {
   return apiFetch<CollectionRunOut[]>(`/sources/${sourceId}/runs`);
 }
 
-export function triggerCollection(sourceId: string): Promise<CollectionRunOut> {
-  return apiFetch<CollectionRunOut>(`/sources/${sourceId}/collect`, { method: "POST" });
+export function startCollection(sourceId: string): Promise<{ job: CollectionJob; already_running: boolean }> {
+  return apiFetch(`/sources/${sourceId}/collect`, { method: "POST" });
 }
+export const getCollectionJob = (jobId: string): Promise<CollectionJob> => apiFetch(`/sources/jobs/${jobId}`);
+export const cancelCollectionJob = (jobId: string): Promise<CollectionJob> => apiFetch(`/sources/jobs/${jobId}/cancel`, { method: "POST" });
+export const listSourceJobs = (sourceId: string): Promise<CollectionJob[]> => apiFetch(`/sources/${sourceId}/jobs`);
+export const createSource = (body: SourceInput): Promise<SourceOut> => apiFetch("/sources", { method: "POST", body: JSON.stringify(body) });
+export const updateSource = (id: string, body: Partial<SourceInput> & { is_active?: boolean }): Promise<SourceOut> => apiFetch(`/sources/${id}`, { method: "PATCH", body: JSON.stringify(body) });
+export const testSourceConnection = (body: { url: string; source_type: string; api_provider?: string | null; config_json?: string | null; respect_robots?: boolean; min_request_interval_seconds?: number }): Promise<ConnectionTestResult> =>
+  apiFetch("/sources/test-connection", { method: "POST", body: JSON.stringify(body) });
+export const getSourceHistory = (id: string): Promise<{ action: string; at: string; actor: string; detail: Record<string, unknown> | null }[]> => apiFetch(`/sources/${id}/history`);
+export const getCollectionStatus = (): Promise<CollectionStatus> => apiFetch("/collection/status");
+export const runAllCollection = (): Promise<{ started: number; already_running: number }> => apiFetch("/collection/run-all", { method: "POST" });
 
 // --- 대시보드 ---------------------------------------------------------------
 

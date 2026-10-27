@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import { test, expect, type Page } from "@playwright/test";
+import { type Page } from "@playwright/test";
+import { test, expect, API } from "./fixtures";
 import { login, E2E_ADMIN } from "./helpers";
 
 // Phase 3-8 — 안정 시연본: 모든 단계를 화면 조작으로만 진행한다(DB·API로 상태를 만들어 두지 않는다).
@@ -140,7 +141,7 @@ for (const round of [1, 2]) {
 
 test("3-8 정합 — 대시보드 자료 수 구성 = 전체 수집 건수, 분야 합계 + 주 분야 미지정 = 분류 완료", async ({ page }) => {
   await login(page, E2E_ADMIN);
-  const r = await page.evaluate(async () => (await fetch("http://localhost:8000/dashboard/summary", { credentials: "include" })).json());
+  const r = await page.evaluate(async () => (await fetch((window as unknown as { E2E_API: string }).E2E_API + "/dashboard/summary", { credentials: "include" })).json());
   expect(r.total_documents).toBe(r.matched_documents + r.low_relevance_documents + r.pending_review_documents + r.unclassified_documents);
   expect(r.matched_documents).toBe(r.by_field.reduce((s: number, f: any) => s + f.document_count, 0) + r.matched_without_field);
   expect(r.matched_without_field).toBe(0); // 시연 데이터에는 주 분야가 비어 있는 분류 완료 자료가 없다

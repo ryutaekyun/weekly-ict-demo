@@ -134,6 +134,12 @@ class DocumentListItemOut(BaseModel):
     link_blocked: bool = False
     link_note: str | None = None
     is_pdf: bool = False
+    # Phase 4-2: 원문 언어·버전(번역·재검토 연계 준비). 번역 상태는 번역 엔진이 연결되는 4-3 단계에서 채운다.
+    language: str | None = None
+    version_no: int = 1
+    is_latest: bool = True
+    external_id: str | None = None
+    translation_status: str = "not_available"  # 번역 엔진 연결 전에는 'not_available'
 
 
 class DocumentListOut(BaseModel):

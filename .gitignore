@@ -26,3 +26,6 @@ backups/
 infra/.env.prod
 
 apps/web/pw*.log
+apps/api/e2e.db*
+apps/web/.next-e2e/
+apps/web/e2e/feeds/*.xml

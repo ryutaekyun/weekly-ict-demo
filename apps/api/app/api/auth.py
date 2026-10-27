@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -19,6 +19,7 @@ from app.models.user import User
 import hashlib
 import json
 
+from app.core import ratelimit
 from app.core.audit import log_action
 from app.models.enums import FieldCode, UserRole
 from app.models.user_invite import UserInvite
@@ -62,9 +63,12 @@ def _user_out(u: User) -> UserOut:
 
 
 @router.post("/register", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED)
-def register(payload: RegisterRequest, db: Session = Depends(get_db)):
+def register(payload: RegisterRequest, request: Request, db: Session = Depends(get_db)):
     """연구원 회원가입 — 기본은 관리자 승인 대기(pending). 관리자가 발급한 초대 링크로 가입하면 초대된 역할로 바로 승인된다.
     이메일 소유 확인 메일은 SMTP가 연결되기 전까지 보내지 않으며, 그 대신 관리자 승인·초대 방식을 쓴다."""
+    ip = request.client.host if request.client else "unknown"
+    if not ratelimit.allow(f"register:{ip}", limit=20, window_seconds=600):
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="가입 신청이 너무 많습니다. 잠시 후 다시 시도하세요")
     email = payload.email.strip().lower()
     if db.scalar(select(User).where(User.email == email)) is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="이미 가입된 이메일입니다")

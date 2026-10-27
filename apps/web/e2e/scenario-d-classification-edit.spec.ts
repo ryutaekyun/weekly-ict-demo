@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 import { login, E2E_ADMIN } from "./helpers";
 
 test("시나리오 D — 문서 선택 → 분류 수정 → 저장 → 새로고침 후 반영 확인", async ({ page }) => {

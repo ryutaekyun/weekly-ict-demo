@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 import { login, E2E_ADMIN } from "./helpers";
 
 test("시나리오 A — 로그인 → ICT 정보 수집 → 분야 선택 → 문서 조회 → 관련 이슈 이동", async ({ page }) => {

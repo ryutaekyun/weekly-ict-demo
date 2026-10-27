@@ -1,4 +1,5 @@
-import { test, expect, type Page } from "@playwright/test";
+import { type Page } from "@playwright/test";
+import { test, expect, API_PORT } from "./fixtures";
 import { login, E2E_ADMIN } from "./helpers";
 
 // Phase 3-6.2A — 첫 실제 호출 안전장치 화면(관리자 1건 승인·예산 상한)과 품질 평가. 서버는 모의 공급자이며 실제 유료 AI 호출은 하지 않는다.
@@ -7,7 +8,7 @@ import { login, E2E_ADMIN } from "./helpers";
 async function api<T = any>(page: Page, method: string, path: string, body?: unknown): Promise<{ status: number; json: T }> {
   return page.evaluate(async ({ method, path, body }) => {
     const csrf = document.cookie.match(/(?:^|; )csrf_token=([^;]*)/)?.[1];
-    const res = await fetch(`http://localhost:8000${path}`, {
+    const res = await fetch(`${(window as unknown as { E2E_API: string }).E2E_API}${path}`, {
       method, credentials: "include",
       headers: { "Content-Type": "application/json", ...(csrf ? { "x-csrf-token": decodeURIComponent(csrf) } : {}) },
       body: body ? JSON.stringify(body) : undefined,
@@ -28,7 +29,7 @@ async function pickUsableDoc(page: Page): Promise<string> {
 test("무료 시연 — 유료 AI 승인·사전 점검·연결 진단·단가 설정 UI는 보이지 않고 잠금 안내만 표시된다", async ({ page }) => {
   await login(page, E2E_ADMIN);
   const docId = await pickUsableDoc(page);
-  await page.route((u) => u.port === "8000" && u.pathname === "/ai/estimate", async (route) => {
+  await page.route((u) => u.port === API_PORT && u.pathname === "/ai/estimate", async (route) => {
     const res = await route.fetch();
     const body = await res.json();
     await route.fulfill({ response: res, json: { ...body, approval_required: true, approval: null } }); // 서버가 승인을 요구하는 것처럼 보여도 UI는 유료 승인 기능을 노출하지 않는다

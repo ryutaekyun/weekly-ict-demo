@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import { test, expect, type Page } from "@playwright/test";
+import { type Page } from "@playwright/test";
+import { test, expect } from "./fixtures";
 import { login, logout, E2E_ADMIN, E2E_RESEARCHER, E2E_REVIEWER } from "./helpers";
 
 // Phase 3-4 — 주간기술동향지: 회차 계획 → 전문가 등록·의뢰 → 외부 저자 제출(보안 검사) → 1차 검토 → 저자 수정 → 2차 심의 → 교정 → 확정 발간본

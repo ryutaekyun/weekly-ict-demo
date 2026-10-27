@@ -1,5 +1,6 @@
 import fs from "node:fs";
-import { test, expect, type Page } from "@playwright/test";
+import { type Page } from "@playwright/test";
+import { test, expect, newCtx, API } from "./fixtures";
 import { login, logout, E2E_ADMIN, E2E_RESEARCHER } from "./helpers";
 
 test.setTimeout(240_000);
@@ -151,9 +152,9 @@ test("시나리오 J — 출력용 확정: 연구원 불가·필수 점검 미�
   await logout(page);
 
   // 보고서를 만들지 않은 다른 연구원 계정은 출력 파일 목록·다운로드가 서버에서 차단된다(권한 없음 확인)
-  const ctx = await browser.newContext({ baseURL: "http://localhost:3000" });
+  const ctx = await newCtx(browser);
   const other = await ctx.newPage();
-  const result = await other.request.get(`http://localhost:8000/reports/${reportId}/exports`);
+  const result = await other.request.get(`${API}/reports/${reportId}/exports`);
   expect(result.status()).toBe(401); // 비로그인
   await ctx.close();
 });

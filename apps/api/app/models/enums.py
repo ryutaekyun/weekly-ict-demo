@@ -41,9 +41,24 @@ class CandidateStatus(str, enum.Enum):
 
 
 class SourceType(str, enum.Enum):
-    RSS = "rss"
-    API = "api"
-    HTML = "html"
+    RSS = "rss"  # RSS / Atom 피드
+    API = "api"  # 공식 REST API (api_provider 로 응답 형식 선택)
+    HTML = "html"  # 공개 HTML 목록 페이지의 링크 수집(허용된 곳만)
+    PDF = "pdf"  # 공식 PDF 1건(메타데이터·내용 해시만 보존)
+    METADATA = "metadata"  # 이용조건상 전문 저장이 불가한 정보원 — 제목·링크·발표일만 저장
+
+
+class CollectionJobStatus(str, enum.Enum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    TIMEOUT = "timeout"
+    INTERRUPTED = "interrupted"  # 서버 재시작·작업자 중단으로 끝까지 가지 못함
+
+
+ACTIVE_JOB_STATUSES = (CollectionJobStatus.QUEUED, CollectionJobStatus.RUNNING)
 
 
 class CollectionRunStatus(str, enum.Enum):
@@ -86,6 +101,8 @@ class CollectionErrorType(str, enum.Enum):
     CONNECTION_ERROR = "connection_error"
     PARSE_ERROR = "parse_error"
     ROBOTS_DISALLOWED = "robots_disallowed"
+    BLOCKED_URL = "blocked_url"  # 내부망·비허용 주소·프로토콜 등 안전 규칙에 막힘
+    TOO_LARGE = "too_large"
     NO_RELEVANT_CONTENT = "no_relevant_content"  # 접속은 성공했으나 해당 분야 실제 콘텐츠를 찾지 못함
 
 

@@ -154,6 +154,8 @@ jobs:
           AI_ALLOW_MOCK: "1"
           AI_MOCK_FLAWS: "1"
           AI_DAILY_LIMIT: "500"
+          # 수집 E2E 의 로컬 시험 피드(localhost:4174) 수집을 허용 — 운영 설정에서는 켤 수 없다(APP_ENV=production 거부)
+          COLLECTOR_ALLOW_PRIVATE_HOSTS: "1"
         # localhost로 바인딩한다 — 쿠키는 포트가 아니라 호스트 단위로 저장되므로,
         # 프런트엔드(localhost:3000)와 호스트명이 다르면(예: 127.0.0.1) CSRF 쿠키를
         # document.cookie로 읽지 못해 PATCH/POST 요청이 전부 실패한다.
@@ -197,6 +199,8 @@ jobs:
 
       - name: Run Playwright E2E tests (실제 브라우저)
         working-directory: apps/web
+        env:
+          E2E_ISOLATED: "0"
         run: npx playwright test
 
       - name: Upload Playwright report on failure

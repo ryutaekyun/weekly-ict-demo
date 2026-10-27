@@ -1,5 +1,6 @@
 import path from "node:path";
-import { test, expect, type Page, type Browser } from "@playwright/test";
+import { type Page, type Browser } from "@playwright/test";
+import { test, expect, newCtx } from "./fixtures";
 import { login, E2E_ADMIN } from "./helpers";
 
 // Phase 4-1 — 회원가입 → 관리자 승인 → 로그인 → 관심 분야, 초대 링크 가입, 연구원 A·B가 서로 다른 브라우저(세션)에서 같은 DB를 함께 사용.
@@ -10,7 +11,7 @@ const OUT = path.join("test-results", "phase41");
 const PW = "Researcher#2026a";
 
 async function newUser(browser: Browser) {
-  const ctx = await browser.newContext({ viewport: { width: 1366, height: 768 } });
+  const ctx = await newCtx(browser, { viewport: { width: 1366, height: 768 } });
   return { ctx, page: await ctx.newPage() };
 }
 
@@ -76,7 +77,7 @@ test("4-1 A — 회원가입 → 승인 대기 로그인 차단 → 관리자 �
   await expect(A.page.locator('a[href="/admin/users"]')).toHaveCount(0);
   await A.page.goto("/admin/users");
   await expect(A.page.locator(".notice.err")).toContainText("시스템 관리자만");
-  const status = await A.page.evaluate(async () => (await fetch("http://localhost:8000/admin/users", { credentials: "include" })).status);
+  const status = await A.page.evaluate(async () => (await fetch((window as unknown as { E2E_API: string }).E2E_API + "/admin/users", { credentials: "include" })).status);
   expect(status).toBe(403);
   await A.ctx.close();
   await ADM.ctx.close();
@@ -167,7 +168,7 @@ test("4-1 B — 초대 링크 가입(즉시 승인) + 연구원 A·B가 서로 �
   if (candId) {
     const st = await ADM.page.evaluate(async (id) => {
       const csrf = document.cookie.match(/(?:^|; )csrf_token=([^;]*)/)?.[1];
-      return (await fetch(`http://localhost:8000/candidates/${id}`, { method: "DELETE", credentials: "include", headers: csrf ? { "x-csrf-token": decodeURIComponent(csrf) } : {} })).status;
+      return (await fetch(`${(window as unknown as { E2E_API: string }).E2E_API}/candidates/${id}`, { method: "DELETE", credentials: "include", headers: csrf ? { "x-csrf-token": decodeURIComponent(csrf) } : {} })).status;
     }, candId);
     expect([204, 200]).toContain(st);
   }
