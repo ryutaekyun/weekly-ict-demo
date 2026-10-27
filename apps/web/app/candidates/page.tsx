@@ -28,13 +28,16 @@ function CandidatesList() {
   useEffect(() => { listUsers().then(setUsers).catch(() => undefined); }, []);
   useEffect(() => {
     setLoading(true);
+    let stale = false; // 늦게 도착한 이전 조건의 응답이 최신 목록을 덮어쓰지 않도록 한다
     listCandidates({ field_code: fieldCode || undefined, status: status || undefined, q: q || undefined, assignee_user_id: assignee || undefined, mine: mine ? "true" : undefined })
-      .then(setCandidates)
+      .then((res) => { if (!stale) setCandidates(res); })
       .catch((err) => {
+        if (stale) return;
         if (err instanceof UnauthorizedError) { router.push("/login"); return; }
         setError(err instanceof Error ? err.message : "불러오기 실패");
       })
-      .finally(() => setLoading(false));
+      .finally(() => { if (!stale) setLoading(false); });
+    return () => { stale = true; };
   }, [fieldCode, status, q, assignee, mine, router, reloadKey]);
 
   function syncUrl(next: Record<string, string>) {

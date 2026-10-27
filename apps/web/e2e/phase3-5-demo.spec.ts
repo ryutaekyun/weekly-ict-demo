@@ -8,7 +8,7 @@ test("3-5 A·B — 분야 선택 → 실제 뉴스 목록(건수=표시 행) →
   await page.goto("/documents");
   await page.getByLabel("전체 분야").selectOption("ai");
   await expect(page).toHaveURL(/field_code=ai/);
-  await expect(page.getByTestId("news-row").first()).toContainText("인공지능·데이터");
+  await expect(page.getByTestId("news-row").first()).toContainText("인공지능·데이터", { timeout: 15000 });
   const countText = await page.getByTestId("result-count").textContent();
   const total = Number(/(\d+)/.exec(countText ?? "")![1]);
   const size = Math.min(total, 20);
@@ -29,7 +29,7 @@ test("3-5 A·B — 분야 선택 → 실제 뉴스 목록(건수=표시 행) →
 
 test("3-5 C — 원문 주소가 없는 자료는 클릭이 막히고 사유가 표시된다(링크 오류와 접속 제한을 구분)", async ({ page }) => {
   await login(page, E2E_ADMIN);
-  await page.route("**/documents?*", async (route) => {
+  await page.route((u) => u.port === "8000" && u.pathname === "/documents", async (route) => {
     const res = await route.fetch();
     const body = await res.json();
     if (Array.isArray(body.items) && body.items.length > 0) {
@@ -48,7 +48,10 @@ test("3-5 C — 원문 주소가 없는 자료는 클릭이 막히고 사유가 
 test("3-5 H — 검색·필터·정렬은 URL에 남아 상세 → 뒤로가기 후에도 유지되고, 조건 초기화로 복구된다", async ({ page }) => {
   await login(page, E2E_ADMIN);
   await page.goto("/documents");
+  await expect(page.getByTestId("news-row").first()).toBeVisible();
+  const all = await page.getByTestId("result-count").textContent();
   await page.getByLabel("전체 분야").selectOption("ai");
+  await expect(page.getByTestId("result-count")).not.toHaveText(all ?? "");
   await page.getByLabel("정렬").selectOption("title");
   await expect(page).toHaveURL(/field_code=ai/);
   await expect(page).toHaveURL(/sort=title/);

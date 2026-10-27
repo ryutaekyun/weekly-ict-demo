@@ -43,10 +43,12 @@ function DocumentsList() {
     setError(null);
     const params: Record<string, string | number> = { page, page_size: pageSize };
     KEYS.forEach((k) => { if (filters[k]) params[k] = k === "published_after" ? `${filters[k]}T00:00:00` : k === "published_before" ? `${filters[k]}T23:59:59` : filters[k]; });
+    let stale = false; // 먼저 보낸 요청의 응답이 늦게 도착해 최신 조건의 목록을 덮어쓰지 않도록 한다
     listDocuments(params)
-      .then((res) => { setItems(res.items); setTotal(res.total); })
-      .catch((err) => setError(err instanceof Error ? err.message : "불러오기 실패"))
-      .finally(() => setLoading(false));
+      .then((res) => { if (!stale) { setItems(res.items); setTotal(res.total); } })
+      .catch((err) => { if (!stale) setError(err instanceof Error ? err.message : "불러오기 실패"); })
+      .finally(() => { if (!stale) setLoading(false); });
+    return () => { stale = true; };
   }, [filters, page, pageSize]);
 
   function apply(next: Partial<Record<Key, string>>, extra: { page?: number; pageSize?: number } = {}) {
