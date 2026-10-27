@@ -268,3 +268,12 @@ def test_dotenv_file_values_are_used_when_environment_is_unset(tmp_path, monkeyp
     p = ai_service.get_ai_provider()
     assert p is not None and p.name == "anthropic" and p.model == "claude-sonnet-5-5"
     assert "[REDACTED]" in ai_service.redact_secrets("key sk-ant-dotenv-0123456789abcdef")
+
+
+def test_paid_external_ai_is_locked_by_default_even_with_a_key(monkeypatch):
+    monkeypatch.setenv("AI_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-locked-0123456789abcdef")
+    monkeypatch.delenv("AI_ALLOW_PAID")
+    assert ai_service.get_ai_provider() is None and any("유료 외부 AI 잠금" in g for g in ai_service.configuration_gaps())
+    monkeypatch.setenv("AI_ALLOW_PAID", "1")
+    assert ai_service.get_ai_provider() is not None

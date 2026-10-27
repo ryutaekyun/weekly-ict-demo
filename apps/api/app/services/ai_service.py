@@ -265,6 +265,8 @@ def get_ai_provider() -> AIProvider | None:
         from app.services.ai_mock import MockProvider
 
         return MockProvider()
+    if _getenv("AI_ALLOW_PAID").strip() != "1":
+        return None  # 유료 외부 AI는 AI_ALLOW_PAID=1을 명시하기 전에는 키가 있어도 절대 호출하지 않는다(무료 시연 보호 잠금)
     if not model:
         return None  # 모델 미지정(OpenAI 등) — 추측하지 않고 설정 필요로 처리
     if provider_name == "anthropic":
@@ -286,6 +288,8 @@ def configuration_gaps() -> list[str]:
     if name not in ("anthropic", "openai"):
         return [f"지원하지 않는 AI_PROVIDER: {name}"]
     gaps = []
+    if _getenv("AI_ALLOW_PAID").strip() != "1":
+        gaps.append("유료 외부 AI 잠금(AI_ALLOW_PAID=1이 아님) — 무료 시연 모드")
     if not (_getenv(AI_MODEL_ENV).strip() or _DEFAULT_MODELS.get(name)):
         gaps.append("AI_MODEL이 필요함(이 공급자는 기본 모델을 두지 않음)")
     if not _getenv("ANTHROPIC_API_KEY" if name == "anthropic" else "OPENAI_API_KEY").strip():
