@@ -255,3 +255,16 @@ def test_approval_cap_must_cover_max_output_cost(client, db_session, env, monkey
     low = approve(client, env, max_cost_usd=round(est["est_cost_usd"] + 0.0001, 4))  # 예상 비용만 덮는 상한은 최대 비용보다 작아 거부
     assert low.status_code == 422 and "최대 계산 비용" in low.text
     assert approve(client, env, max_cost_usd=round(est["max_cost_usd"] + 0.01, 3)).status_code == 200
+
+
+def test_dotenv_file_values_are_used_when_environment_is_unset(tmp_path, monkeypatch):
+    """서버가 apps/api/.env의 AI_PROVIDER·키를 실제로 읽는다(pydantic 설정과 별개로 os.environ에는 올라오지 않으므로 직접 읽는다)."""
+    (tmp_path / ".env").write_text("AI_PROVIDER=anthropic\nANTHROPIC_API_KEY=sk-ant-dotenv-0123456789abcdef\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    for k in ("AI_PROVIDER", "ANTHROPIC_API_KEY", "AI_MODEL"):
+        monkeypatch.delenv(k, raising=False)
+    assert ai_service.get_ai_provider() is None  # pytest 중에는 .env를 읽지 않는다(로컬 키가 테스트에 영향을 주지 않게)
+    monkeypatch.delenv("PYTEST_CURRENT_TEST")
+    p = ai_service.get_ai_provider()
+    assert p is not None and p.name == "anthropic" and p.model == "claude-sonnet-5-5"
+    assert "[REDACTED]" in ai_service.redact_secrets("key sk-ant-dotenv-0123456789abcdef")

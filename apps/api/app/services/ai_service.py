@@ -27,6 +27,22 @@ REQUEST_TIMEOUT_SECONDS = 120.0
 ANTHROPIC_VERSION = "2023-06-01"
 
 
+def _getenv(name: str, default: str = "") -> str:
+    """환경변수를 읽는다. 값이 없으면 apps/api/.env 파일(Git에 올라가지 않음)에서 읽는다 — 서버가 .env의 AI_* 설정을 쓰도록 하기 위함.
+    자동 테스트(pytest) 중에는 .env를 읽지 않아 로컬 키 설정이 테스트에 영향을 주지 않는다."""
+    v = os.environ.get(name)
+    if v is not None:
+        return v
+    if "PYTEST_CURRENT_TEST" in os.environ:
+        return default
+    try:
+        from dotenv import dotenv_values
+
+        return str(dotenv_values(".env").get(name) or default)
+    except Exception:  # noqa: BLE001 — .env가 없거나 읽을 수 없으면 기본값
+        return default
+
+
 _KEY_PATTERN = re.compile(r"sk-[A-Za-z0-9_\-]{16,}")
 
 
@@ -34,7 +50,7 @@ def redact_secrets(text: str) -> str:
     """오류 메시지·로그·저장 문자열에서 API 키 값을 지운다(설정된 키 값과 'sk-...' 형태 모두)."""
     out = text or ""
     for env in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY"):
-        v = os.environ.get(env, "").strip()
+        v = _getenv(env).strip()
         if len(v) >= 8:
             out = out.replace(v, "[REDACTED]")
     return _KEY_PATTERN.sub("[REDACTED]", out)
@@ -148,7 +164,7 @@ class AnthropicProvider:
 
     @property
     def supports_schema(self) -> bool:
-        return os.environ.get("AI_STRUCTURED_OUTPUT", "").strip() == "1"
+        return _getenv("AI_STRUCTURED_OUTPUT").strip() == "1"
 
     def __init__(self, api_key: str, model: str):
         self.api_key = api_key
@@ -238,13 +254,13 @@ _DEFAULT_MODELS = {"anthropic": "claude-sonnet-5-5"}
 
 def get_ai_provider() -> AIProvider | None:
     """서버 환경변수를 읽어 사용 가능한 AI 공급자를 돌려준다. 미설정이면 None(호출부는 규칙 기반으로 대체)."""
-    provider_name = os.environ.get(AI_PROVIDER_ENV, "").strip().lower()
+    provider_name = _getenv(AI_PROVIDER_ENV).strip().lower()
     if not provider_name:
         return None
-    model = os.environ.get(AI_MODEL_ENV, "").strip() or _DEFAULT_MODELS.get(provider_name)
+    model = _getenv(AI_MODEL_ENV).strip() or _DEFAULT_MODELS.get(provider_name)
     if provider_name == "mock":
         # 개발·자동 테스트 전용 — 실제 AI가 아니다. AI_ALLOW_MOCK=1을 함께 지정해야만 켜지며 결과에 '모의 응답'이 표시된다.
-        if os.environ.get("AI_ALLOW_MOCK", "").strip() != "1":
+        if _getenv("AI_ALLOW_MOCK").strip() != "1":
             return None
         from app.services.ai_mock import MockProvider
 
@@ -252,27 +268,27 @@ def get_ai_provider() -> AIProvider | None:
     if not model:
         return None  # 모델 미지정(OpenAI 등) — 추측하지 않고 설정 필요로 처리
     if provider_name == "anthropic":
-        key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+        key = _getenv("ANTHROPIC_API_KEY").strip()
         return AnthropicProvider(api_key=key, model=model) if key else None
     if provider_name == "openai":
-        key = os.environ.get("OPENAI_API_KEY", "").strip()
+        key = _getenv("OPENAI_API_KEY").strip()
         return OpenAIProvider(api_key=key, model=model) if key else None
     return None
 
 
 def configuration_gaps() -> list[str]:
     """설정이 덜 된 이유를 키 값 없이 알려 준다(진단·화면 안내용)."""
-    name = os.environ.get(AI_PROVIDER_ENV, "").strip().lower()
+    name = _getenv(AI_PROVIDER_ENV).strip().lower()
     if not name:
         return ["AI_PROVIDER가 설정되지 않음"]
     if name == "mock":
-        return [] if os.environ.get("AI_ALLOW_MOCK", "").strip() == "1" else ["모의 공급자는 AI_ALLOW_MOCK=1이 필요함"]
+        return [] if _getenv("AI_ALLOW_MOCK").strip() == "1" else ["모의 공급자는 AI_ALLOW_MOCK=1이 필요함"]
     if name not in ("anthropic", "openai"):
         return [f"지원하지 않는 AI_PROVIDER: {name}"]
     gaps = []
-    if not (os.environ.get(AI_MODEL_ENV, "").strip() or _DEFAULT_MODELS.get(name)):
+    if not (_getenv(AI_MODEL_ENV).strip() or _DEFAULT_MODELS.get(name)):
         gaps.append("AI_MODEL이 필요함(이 공급자는 기본 모델을 두지 않음)")
-    if not os.environ.get("ANTHROPIC_API_KEY" if name == "anthropic" else "OPENAI_API_KEY", "").strip():
+    if not _getenv("ANTHROPIC_API_KEY" if name == "anthropic" else "OPENAI_API_KEY").strip():
         gaps.append("API 키 환경변수가 설정되지 않음")
     return gaps
 

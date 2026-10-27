@@ -28,6 +28,7 @@ from app.models.source_document import SourceDocument
 from app.models.user import User
 from app.services import ai_evidence
 from app.models.ai_analysis import AICallApproval, AIEvaluation, AIPriceSetting
+from app.services.ai_service import _getenv
 from app.services.ai_service import (
     AIBadResponseError, AIServiceError, configuration_gaps, cost_usd, estimate_tokens, extract_json_object, get_ai_provider, redact_secrets,
 )
@@ -140,7 +141,7 @@ def get_price(db: Session, provider: str, model: str | None) -> tuple[tuple[floa
 
 def daily_limit() -> int:
     try:
-        return int(os.environ.get("AI_DAILY_LIMIT", "30"))
+        return int(_getenv("AI_DAILY_LIMIT", "30"))
     except ValueError:
         return 30
 
@@ -243,8 +244,8 @@ def estimate(db: Session, kind: str, target_id: uuid.UUID, document_ids: list[uu
     chars = sum(i["chars"] for i in inputs)
     in_tok = estimate_tokens(chars) + 900  # 지시문 여유
     provider = get_ai_provider()
-    pname = provider.name if provider else (os.environ.get("AI_PROVIDER", "").strip().lower() or "anthropic")
-    pmodel = provider.model if provider else (os.environ.get("AI_MODEL", "").strip() or None)
+    pname = provider.name if provider else (_getenv("AI_PROVIDER").strip().lower() or "anthropic")
+    pmodel = provider.model if provider else (_getenv("AI_MODEL").strip() or None)
     price, price_version, _ = get_price(db, pname, pmodel)
     cost = cost_usd(price, in_tok, EST_OUTPUT_TOKENS)
     max_cost = cost_usd(price, in_tok, MAX_OUTPUT_TOKENS)  # 출력이 max_tokens(사고 토큰 포함)까지 가는 최악의 경우
@@ -312,12 +313,12 @@ def validate_payload(payload: object) -> list[str]:
 # ---------------------------------------------------------------- 첫 실호출 안전장치(관리자 1건 승인) ----
 def approval_required(provider_name: str) -> bool:
     """모의 공급자가 아닌 실제 공급자 호출은 기본적으로 관리자의 호출 1건 승인이 있어야 한다(AI_REQUIRE_APPROVAL=0으로만 끌 수 있음)."""
-    return provider_name != "mock" and os.environ.get("AI_REQUIRE_APPROVAL", "1").strip() != "0"
+    return provider_name != "mock" and _getenv("AI_REQUIRE_APPROVAL", "1").strip() != "0"
 
 
 def per_request_cap() -> float | None:
     try:
-        v = os.environ.get("AI_MAX_COST_PER_REQUEST_USD", "").strip()
+        v = _getenv("AI_MAX_COST_PER_REQUEST_USD").strip()
         return float(v) if v else None
     except ValueError:
         return None
@@ -776,8 +777,8 @@ def preflight(db: Session, kind: str, target_id: uuid.UUID, document_ids: list[u
         raise AIRequestError(422, "원문 전문이 확보된 문서가 없어 분석을 보류합니다(근거 부족)")
     system, user_prompt = build_prompt(kind, inputs, extra)
     provider = get_ai_provider()
-    pname = provider.name if provider else (os.environ.get("AI_PROVIDER", "").strip().lower() or "anthropic")
-    pmodel = provider.model if provider else (os.environ.get("AI_MODEL", "").strip() or "claude-sonnet-5-5")
+    pname = provider.name if provider else (_getenv("AI_PROVIDER").strip().lower() or "anthropic")
+    pmodel = provider.model if provider else (_getenv("AI_MODEL").strip() or "claude-sonnet-5-5")
     price, price_version, _ = get_price(db, pname, pmodel)
     est_in = estimate_tokens(len(system) + len(user_prompt))
     counted, count_note = None, "키가 없어 토큰을 실측하지 못했습니다(미측정 — 문자 수 기반 추정치를 사용)"
