@@ -24,3 +24,5 @@ apps/api/demo_accounts.local.txt
 backups/
 
 infra/.env.prod
+
+apps/web/pw*.log
