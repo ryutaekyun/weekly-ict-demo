@@ -12,6 +12,8 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   retries: 0,
+  // 개발 서버(첫 컴파일·부하)에서도 화면 로딩이 5초를 넘을 수 있어 기본 단언 대기를 늘린다 — 고정 sleep 이 아니라 상태가 나타나는 즉시 통과한다
+  expect: { timeout: 15_000 },
   reporter: [["list"]],
   use: {
     baseURL: WEB,

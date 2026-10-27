@@ -93,6 +93,6 @@ test("3-5 D·E — 뉴스 → 이슈 → 후보주제, 후보 담당자·설명 
   await expect(page.getByText(/저장했습니다|저장되었습니다/)).toBeVisible();
 
   await page.reload();
-  await expect(page.getByLabel("후보주제 설명")).toHaveValue(summary, { timeout: 15_000 });
+  await expect(page.getByLabel("후보주제 설명")).toHaveValue(summary, { timeout: 45_000 });
   await expect(page.getByRole("heading", { name: "수정 이력" })).toBeVisible();
 });
