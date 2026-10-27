@@ -17,10 +17,14 @@ async function api<T = any>(page: Page, method: string, path: string, body?: unk
 }
 
 async function pickDocWithText(page: Page, nth = 0): Promise<{ id: string; title: string }> {
-  const r = await api(page, "GET", "/documents?has_full_text=true&page_size=20&sort=published_desc");
-  const items = r.json.items.filter((d: any) => d.extraction_status === "success");
-  const d = items[nth % items.length]; // CI 픽스처는 문서가 적어 순번을 돌려 쓴다
-  return { id: d.id, title: d.title };
+  const r = await api(page, "GET", "/documents?has_full_text=true&page_size=30&sort=published_desc");
+  const usable: { id: string; title: string }[] = [];
+  for (const d of r.json.items.filter((x: any) => x.extraction_status === "success")) {
+    const est = await api(page, "POST", "/ai/estimate", { kind: "document", target_id: d.id });
+    if (est.status === 200 && est.json.documents.length > 0) usable.push({ id: d.id, title: d.title }); // 원문이 너무 짧은 문서는 분석 보류 대상이라 제외
+    if (usable.length > nth) break;
+  }
+  return usable[nth % usable.length]; // CI 픽스처는 문서가 적어 순번을 돌려 쓴다
 }
 
 async function findMultiDocIssue(page: Page): Promise<{ id: string; docs: number }> {
