@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import AppShell from "@/components/AppShell";
+import AiAdminPanel from "@/components/AiAdminPanel";
 import { apiFetch, getCurrentUser, UnauthorizedError, type CurrentUser } from "@/lib/api";
 import { ROLE_LABELS } from "@/lib/labels";
 import { useRouter } from "next/navigation";
@@ -66,6 +67,8 @@ export default function SettingsPage() {
           {msg && <span style={{ fontSize: 12.5, color: msg.includes("변경되었습니다") ? "var(--ok)" : "var(--bad)" }}>{msg}</span>}
         </form>
       </section>
+
+      {user && <AiAdminPanel isAdmin={user.role === "admin"} />}
 
       <section className="panel">
         <h2 style={{ fontSize: 14, margin: "0 0 10px" }}>추후 개발 예정 메뉴</h2>

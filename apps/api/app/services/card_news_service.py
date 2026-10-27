@@ -405,7 +405,7 @@ def run_preflight(db: Session, cn: CardNews) -> list[dict]:
         if card.kind == "body" and not (els.get("heading") and (els["heading"].text or "").strip()):
             add("error", "missing_title", "카드 제목이 없습니다", idx, "heading")
     for n in followup_service.open_notices_for(db, "card_news", cn.id):
-        add("error", "followup_pending", f"후속 규정이 발견되어 재검토가 필요합니다(연구원 확인 전): {n['title'][:60]}")
+        add("error", "followup_pending", f"후속 규정 또는 근거 원문 변경이 발견되어 재검토가 필요합니다(연구원 확인 전): {n['title'][:60]}")
     if len(title_sizes) > 1:
         add("warn", "inconsistent_style", "카드마다 제목 글자 크기가 다릅니다 — 디자인 일관성을 확인하세요")
     for idx, scene in enumerate(scenes, start=1):

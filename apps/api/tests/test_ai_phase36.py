@@ -114,7 +114,13 @@ def test_permissions_cost_confirmation_estimate_and_daily_limit(client, db_sessi
     fake = use(monkeypatch, FakeProvider(doc_payload({"summary": [item("요지", [("D1", "The final rule takes effect on February 18, 2025.")])]})))
     doc = make_doc(db_session, title="Doc", field=FieldCode.AI, full_text=FMVSS_A)
     est = client.post("/ai/estimate", headers=researcher, json={"kind": "document", "target_id": str(doc.id)}).json()
-    assert est["est_input_tokens"] > 0 and est["est_cost_usd"] > 0 and est["documents"][0]["id"] == str(doc.id) and fake.calls == 0
+    assert est["est_cost_usd"] is None and est["price_known"] is False and "단가 미설정" in est["price_note"]  # 단가를 모르면 0원이 아니라 '미설정'
+    from datetime import date as _d
+    from app.models.ai_analysis import AIPriceSetting
+    db_session.add(AIPriceSetting(provider="anthropic", model="fake-model-1", input_per_mtok=2.0, output_per_mtok=10.0, effective_date=_d(2026, 10, 27), version=1, is_active=True))
+    db_session.commit()
+    est = client.post("/ai/estimate", headers=researcher, json={"kind": "document", "target_id": str(doc.id)}).json()
+    assert est["est_input_tokens"] > 0 and est["est_cost_usd"] > 0 and "v1" in est["pricing_version"] and est["documents"][0]["id"] == str(doc.id) and fake.calls == 0
     r = client.post("/ai/analyses", headers=researcher, json={"kind": "document", "target_id": str(doc.id)})
     assert r.status_code == 428 and r.json()["detail"]["code"] == "confirm_required" and fake.calls == 0  # 비용 확인 전에는 호출하지 않는다
     make_user(db_session, "ai-rev@example.com", UserRole.REVIEWER)

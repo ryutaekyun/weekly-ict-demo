@@ -292,7 +292,7 @@ def run_preflight(snapshot: dict) -> list[dict]:
         issues.append({"level": level, "code": code, "message": message, "part": part})
 
     for title in snapshot["report"].get("followups_open", []):
-        add("error", "followup_pending", f"후속 규정이 발견되어 재검토가 필요합니다(연구원 확인 전): {title[:60]}")
+        add("error", "followup_pending", f"후속 규정 또는 근거 원문 변경이 발견되어 재검토가 필요합니다(연구원 확인 전): {title[:60]}")
     defs = GENERAL_PARTS if rtype == "general" else SUMMARY_PARTS if rtype == "summary" else []
     required = {k: (label, req) for k, label, req in defs}
     for part in snapshot["parts"]:

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   aiCancel, aiCandidate, aiEstimate, aiInsert, aiList, aiGet, aiReviewClaim, aiRun, aiStatus,
-  type AiAnalysis, type AiClaim, type AiEstimate, type AiKind, type AiStatus,
+  type AiAnalysis, type AiClaim, type AiEstimate, type AiKind, type AiStatus, type InsertPosition,
 } from "@/lib/aiApi";
 
 const VERIFY_LABEL: Record<string, string> = {
@@ -12,10 +12,14 @@ const VERIFY_LABEL: Record<string, string> = {
 };
 const VERIFY_CLASS: Record<string, string> = { ai_unverified: "hold", insufficient: "review", mismatch: "review", researcher_verified: "rec" };
 const EVID_LABEL: Record<string, string> = {
-  found: "원문 근거 확인", not_found: "검증 실패(원문에 없음)", value_mismatch: "근거 불일치(날짜·수치)", no_evidence: "근거 없음·확인 필요",
+  found: "원문 근거 확인", semantic_risk: "의미 불일치 가능성(검토 필요)", not_found: "검증 실패(원문에 없음)", value_mismatch: "근거 불일치(날짜·수치)", no_evidence: "근거 없음·확인 필요",
   interpretation: "AI 해석(원문 사실 아님)", gap: "확인 필요 사항",
 };
-const EVID_CLASS: Record<string, string> = { found: "rec", not_found: "review", value_mismatch: "review", no_evidence: "review", interpretation: "hold", gap: "hold" };
+const EVID_CLASS: Record<string, string> = { found: "rec", semantic_risk: "review", not_found: "review", value_mismatch: "review", no_evidence: "review", interpretation: "hold", gap: "hold" };
+const ERROR_TITLE: Record<string, string> = {
+  auth_error: "인증·권한 오류", model_error: "모델 오류", rate_limited: "요청 한도 초과", context_too_large: "입력 한도 초과", timeout: "응답 시간 초과",
+  provider_5xx: "제공자 서버 오류", bad_response: "잘못된 응답 형식", truncated: "응답 잘림", interrupted: "분석 중단됨",
+};
 const STATE_LABEL: Record<string, string> = { idle: "분석 대기", running: "분석 중", done: "분석 완료·미검증", failed: "분석 실패", config: "AI 설정 필요", hold: "분석 보류(근거 부족)" };
 const box: React.CSSProperties = { border: "1px solid var(--border)", borderRadius: 10, padding: 10, marginBottom: 8, background: "var(--panel)" };
 const inp: React.CSSProperties = { padding: 7, borderRadius: 8, border: "1px solid var(--border)", fontSize: 13, width: "100%" };
@@ -23,11 +27,12 @@ const inp: React.CSSProperties = { padding: 7, borderRadius: 8, border: "1px sol
 type Props = {
   kind: AiKind; targetId: string; title: string; buttonLabel: string; documentIds?: string[]; testId?: string;
   existingCandidates?: { id: string; title: string }[];
-  manuscript?: { id: string; getLockVersion: () => Promise<number>; onInserted: () => void };
+  manuscript?: { id: string; getLockVersion: () => Promise<number>; onInserted: () => void; getCursorIndex?: () => number | null; getHeadings?: () => string[] };
+  ruleBased?: { label: string; text: string }[]; // 기존 규칙 기반 분석 결과 — AI 결과와 나란히 비교한다
   onCandidateLinked?: (candidateId: string, created: boolean) => void;
 };
 
-export default function AiPanel({ kind, targetId, title, buttonLabel, documentIds, testId = "ai-panel", existingCandidates = [], manuscript, onCandidateLinked }: Props) {
+export default function AiPanel({ kind, targetId, title, buttonLabel, documentIds, testId = "ai-panel", existingCandidates = [], manuscript, onCandidateLinked, ruleBased }: Props) {
   const [status, setStatus] = useState<AiStatus | null>(null);
   const [estimate, setEstimate] = useState<AiEstimate | null>(null);
   const [analysis, setAnalysis] = useState<AiAnalysis | null>(null);
@@ -41,6 +46,8 @@ export default function AiPanel({ kind, targetId, title, buttonLabel, documentId
   const [candForm, setCandForm] = useState({ title: "", summary: "", attach: "" });
   const [forceNext, setForceNext] = useState(false);
   const [savedCandidate, setSavedCandidate] = useState<string | null>(null);
+  const [posMode, setPosMode] = useState<"end" | "cursor" | "heading">("end");
+  const [posHeading, setPosHeading] = useState("");
   const abortRef = useRef<AbortController | null>(null);
 
   const loadLatest = useCallback(async () => {
@@ -70,14 +77,22 @@ export default function AiPanel({ kind, targetId, title, buttonLabel, documentId
     const ac = new AbortController();
     abortRef.current = ac;
     try {
-      const res = await aiRun(kind, targetId, { document_ids: documentIds, force }, ac.signal);
+      const watchdog = setTimeout(() => ac.abort(), 170_000); // 응답이 없으면 '분석 중'이 무한히 유지되지 않게 한다
+      const res = await aiRun(kind, targetId, { document_ids: documentIds, force }, ac.signal).finally(() => clearTimeout(watchdog));
+      if (res.status === "failed" || res.status === "cancelled") {
+        setAnalysis(null);
+        setState("failed");
+        const title = ERROR_TITLE[res.error_code ?? ""] ?? (res.status === "cancelled" ? "취소됨" : "분석 실패");
+        setError(`${title}: ${res.error_message ?? res.cancel_note ?? "사유 없음"}${res.provider_request_sent ? " (외부 제공자에 요청이 전달되어 비용이 발생했을 수 있습니다)" : ""}`);
+        return;
+      }
       setAnalysis(await aiGet(res.id).catch(() => res));
       setSelected({}); setEdits({});
       setState("idle");
       if (res.reused) setMsg("같은 원문 버전의 이전 분석 결과를 다시 보여줍니다(AI 호출·비용 없음). 새로 분석하려면 '다시 분석'을 누르세요.");
     } catch (e) {
       setState(ac.signal.aborted ? "idle" : "failed");
-      setError(ac.signal.aborted ? "요청을 취소했습니다." : e instanceof Error ? e.message : "분석 실패");
+      setError(ac.signal.aborted ? "응답을 기다리다 중단했습니다 — 서버에서는 요청이 계속 처리됐을 수 있으니 잠시 뒤 새로고침해 결과를 확인하세요(외부 제공자에 요청이 전달됐다면 비용이 발생했을 수 있음)." : e instanceof Error ? e.message : "분석 실패");
     }
   }
 
@@ -85,7 +100,10 @@ export default function AiPanel({ kind, targetId, title, buttonLabel, documentId
     abortRef.current?.abort();
     try {
       const running = (await aiList(targetId, kind)).find((a) => a.status === "running");
-      if (running) await aiCancel(running.id);
+      if (running) {
+        const c = await aiCancel(running.id);
+        setMsg(c.cancel_note ?? "취소를 요청했습니다.");
+      }
     } catch { /* 이미 끝난 요청이면 무시 */ }
   }
 
@@ -109,10 +127,19 @@ export default function AiPanel({ kind, targetId, title, buttonLabel, documentId
     setError(null);
     try {
       const lock = await manuscript.getLockVersion(); // 저장 대기 중인 연구원 수정을 먼저 저장해 최신 버전을 기준으로 삼는다
-      const r = await aiInsert(analysis.id, { manuscript_id: manuscript.id, claim_ids: ids, lock_version: lock, edited_texts: Object.fromEntries(ids.filter((i) => edits[i]).map((i) => [i, edits[i]])) });
+      let position: InsertPosition = { mode: "end" };
+      if (posMode === "cursor") {
+        const idx = manuscript.getCursorIndex?.();
+        if (idx == null) { setError("편집기에서 문단을 클릭해 커서를 둔 뒤 다시 시도하세요."); return; }
+        position = { mode: "after_index", index: idx };
+      } else if (posMode === "heading") {
+        if (!posHeading) { setError("삽입할 소제목을 선택하세요."); return; }
+        position = { mode: "after_heading", heading_text: posHeading };
+      }
+      const r = await aiInsert(analysis.id, { manuscript_id: manuscript.id, claim_ids: ids, lock_version: lock, edited_texts: Object.fromEntries(ids.filter((i) => edits[i]).map((i) => [i, edits[i]])), position });
       manuscript.onInserted();
       setSelected({});
-      setMsg(`${r.inserted}문장을 원고 끝에 삽입했습니다(각주 ${r.footnotes_created}건, 모두 미검증). ${r.note}`);
+      setMsg(`${r.inserted}문장을 ${posMode === "cursor" ? "커서 위치 뒤" : posMode === "heading" ? `'${posHeading}' 소제목 아래` : "원고 끝"}에 삽입했습니다(각주 ${r.footnotes_created}건, 모두 미검증). ${r.note}`);
       setAnalysis(await aiGet(analysis.id));
     } catch (e) { setError(e instanceof Error ? e.message : "삽입 실패"); }
   }
@@ -158,7 +185,7 @@ export default function AiPanel({ kind, targetId, title, buttonLabel, documentId
           {estimate.skipped.map((s, i) => <p key={i} style={{ fontSize: 12, color: "var(--ink-muted)", margin: "2px 0" }}>제외: {s}</p>)}
           <p style={{ fontSize: 12.5, margin: "6px 0" }}>
             공급자 {estimate.provider}{estimate.model ? ` / ${estimate.model}` : ""} · 예상 입력 {estimate.est_input_tokens.toLocaleString()}토큰 · 예상 출력 최대 {estimate.est_output_tokens.toLocaleString()}토큰 ·
-            예상 비용 약 <b>${estimate.est_cost_usd}</b>{estimate.is_mock ? " (모의 응답 — 비용 없음)" : ""}
+            예상 비용 {estimate.est_cost_usd == null ? <b data-testid="ai-cost-unknown">계산 불가(단가 미설정)</b> : <b>약 ${estimate.est_cost_usd}</b>}{estimate.is_mock ? " (모의 호출 — 실제 비용 미검증)" : " (추정치, 실제 청구금액 아님)"}
           </p>
           <p style={{ fontSize: 11.5, color: "var(--ink-muted)", margin: "0 0 6px" }}>{estimate.price_note} 원문 공개자료만 외부 AI 서비스로 전송됩니다.</p>
           {estimate.existing_candidate_ids.length > 0 && <p style={{ fontSize: 12, color: "var(--warn)" }}>이 이슈에는 이미 후보주제 {estimate.existing_candidate_ids.length}건이 있습니다. 결과는 기존 후보에 연결할 수 있습니다.</p>}
@@ -180,6 +207,18 @@ export default function AiPanel({ kind, targetId, title, buttonLabel, documentId
             <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 4 }}>{analysis.notice}</div>
             {analysis.notes.map((n, i) => <div key={i} style={{ fontSize: 12, color: "var(--warn)" }}>⚠ {n}</div>)}
           </div>
+          {ruleBased && ruleBased.length > 0 && (
+            <div style={{ ...box }} data-testid="ai-rule-compare">
+              <b style={{ fontSize: 13 }}>기존 규칙 기반 결과 ↔ AI 결과 비교</b>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 6, fontSize: 12.5 }}>
+                <div><div style={{ color: "var(--ink-muted)", marginBottom: 2 }}>규칙 기반(원본 보존)</div>{ruleBased.map((r) => <div key={r.label}><b>{r.label}</b>: {r.text || "-"}</div>)}</div>
+                <div><div style={{ color: "var(--ink-muted)", marginBottom: 2 }}>AI 생성 · {analysis.model ?? "-"} · {analysis.finished_at?.slice(0, 10) ?? "-"}</div>
+                  {analysis.sections?.filter((s) => ["summary", "changes", "field_fit"].includes(s.key)).map((s) => <div key={s.key}><b>{s.title}</b>: {s.claims.map((c) => c.text).join(" ") || "근거 부족"}</div>)}</div>
+              </div>
+              <div style={{ fontSize: 11.5, color: "var(--ink-muted)", marginTop: 4 }}>두 결과는 서로 다른 방식으로 만든 별도 기록입니다. 달라 보이는 날짜·수치는 원문 근거로 확인하세요(자동으로 어느 쪽이 맞다고 판정하지 않음).</div>
+            </div>
+          )}
+          {analysis.source_changed_during_run && <p role="alert" data-testid="ai-source-changed" style={{ color: "var(--bad)", fontSize: 13 }}>분석 도중 원문이 변경되었습니다 — 이 결과는 변경 전 원문 기준이므로 &lsquo;다시 분석&rsquo;이 필요합니다.</p>}
           {analysis.hold_reason && <p role="status" data-testid="ai-hold" style={{ color: "var(--warn)", fontSize: 13 }}>{analysis.hold_reason}</p>}
           {analysis.sections?.map((s) => (
             <div key={s.key} style={{ marginBottom: 10 }}>
@@ -232,7 +271,17 @@ export default function AiPanel({ kind, targetId, title, buttonLabel, documentId
           ))}
           {isDraft && manuscript && (
             <div style={{ ...box, background: "var(--panel-2)" }}>
-              <p style={{ fontSize: 12.5, margin: "0 0 6px" }}>선택한 문장만 원고 <b>끝</b>에 덧붙입니다. 기존 본문·승인·각주는 바뀌지 않고, 삽입 각주는 미검증으로 시작합니다. AI 초안은 연구원 검토용 초안입니다.</p>
+              <p style={{ fontSize: 12.5, margin: "0 0 6px" }}>선택한 문장만 아래에서 고른 위치에 덧붙입니다. 기존 본문·승인·각주는 바뀌지 않고, 삽입 문장에는 AI 표시와 미검증 각주가 붙습니다. AI 초안은 연구원 검토용 초안입니다.</p>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 6, fontSize: 12.5 }}>
+                <label><input type="radio" name={`pos-${testId}`} checked={posMode === "end"} onChange={() => setPosMode("end")} /> 원고 끝</label>
+                <label><input type="radio" name={`pos-${testId}`} checked={posMode === "cursor"} onChange={() => setPosMode("cursor")} data-testid="pos-cursor" /> 현재 커서가 있는 문단 뒤</label>
+                <label><input type="radio" name={`pos-${testId}`} checked={posMode === "heading"} onChange={() => { setPosMode("heading"); setPosHeading(manuscript.getHeadings?.()[0] ?? ""); }} data-testid="pos-heading" /> 소제목 아래</label>
+                {posMode === "heading" && (
+                  <select aria-label="삽입할 소제목" value={posHeading} onChange={(e) => setPosHeading(e.target.value)} style={{ ...inp, width: 220 }}>
+                    {(manuscript.getHeadings?.() ?? []).map((h) => <option key={h} value={h}>{h}</option>)}
+                  </select>
+                )}
+              </div>
               <button className="tbtn primary" data-testid="ai-insert" onClick={insert}>선택한 문장 원고에 삽입</button>{" "}
               <button className="tbtn" onClick={() => { setSelected({}); setAnalysis(null); setMsg("제안을 폐기했습니다(저장된 분석 기록은 남습니다)."); }}>전체 제안 폐기</button>
             </div>

@@ -27,8 +27,9 @@ from app.models.source import Source
 from app.models.source_document import SourceDocument
 from app.models.user import User
 from app.services import ai_evidence
+from app.models.ai_analysis import AIPriceSetting
 from app.services.ai_service import (
-    AIServiceError, estimate_cost_usd, estimate_tokens, extract_json_object, get_ai_provider,
+    AIServiceError, configuration_gaps, cost_usd, estimate_tokens, extract_json_object, get_ai_provider,
 )
 
 PROMPT_VERSION = "p36-v1"
@@ -36,7 +37,9 @@ MAX_DOCS = 8
 MAX_CHARS_PER_DOC = 12000
 MAX_TOTAL_CHARS = 60000
 MIN_USABLE_CHARS = 200
-EST_OUTPUT_TOKENS = 3000
+EST_OUTPUT_TOKENS = 5000  # 비용 추정용 출력 상한 가정
+MAX_OUTPUT_TOKENS = 12000  # 적응형 사고가 켜진 모델은 사고 토큰도 출력 한도에 포함되므로 넉넉히 둔다(잘리면 실패로 기록)
+STALE_RUNNING_MINUTES = 10
 ALLOWED_ROLES = (UserRole.RESEARCHER, UserRole.APPROVER, UserRole.ADMIN)
 KINDS = ("document", "issue", "candidate", "outline", "draft")
 
@@ -103,16 +106,35 @@ class AIRequestError(Exception):
 # ---------------------------------------------------------------- 상태·한도 ----
 def ai_status() -> dict:
     provider = get_ai_provider()
+    gaps = [] if provider else configuration_gaps()
     return {
         "configured": provider is not None,
         "provider": provider.name if provider else None,
         "model": provider.model if provider else None,
         "is_mock": bool(provider and provider.name == "mock"),
+        "connection": "mock" if provider and provider.name == "mock" else ("unverified" if provider else "not_configured"),
+        "connection_note": ("모의 공급자 — 실제 연결 아님" if provider and provider.name == "mock" else
+                            "연결 미검증 — 키가 설정돼 있어도 관리자가 '연결 진단'을 실행하기 전에는 실제 호출 성공을 확인하지 않았습니다" if provider else "연결 미검증(설정 없음)"),
+        "config_gaps": gaps,
         "daily_limit_per_user": daily_limit(),
         "max_documents": MAX_DOCS,
         "max_chars_per_document": MAX_CHARS_PER_DOC,
-        "message": None if provider else "AI 설정 필요 — 서버 환경변수(AI_PROVIDER·모델 키)가 설정되지 않아 AI 분석을 실행할 수 없습니다. 규칙 기반 분석은 계속 사용할 수 있습니다.",
+        "message": None if provider else "AI 설정 필요 — " + ("; ".join(gaps) or "서버 환경변수가 설정되지 않아") + ". 규칙 기반 분석은 계속 사용할 수 있습니다.",
     }
+
+
+# ---------------------------------------------------------------- 단가(관리자 갱신) ----
+def get_price(db: Session, provider: str, model: str | None) -> tuple[tuple[float, float] | None, str | None, AIPriceSetting | None]:
+    """제공자·모델의 활성 단가를 DB에서 찾는다. 없으면 (None, None, None) — 비용을 0원으로 간주하지 않는다."""
+    if provider == "mock":
+        return (0.0, 0.0), "mock (비용 없음·실제 비용 미검증)", None
+    if not model:
+        return None, None, None
+    row = db.scalar(select(AIPriceSetting).where(AIPriceSetting.provider == provider, AIPriceSetting.model == model, AIPriceSetting.is_active.is_(True))
+                    .order_by(AIPriceSetting.version.desc()))
+    if row is None:
+        return None, None, None
+    return (row.input_per_mtok, row.output_per_mtok), f"{row.provider}/{row.model} v{row.version} 기준일 {row.effective_date}", row
 
 
 def daily_limit() -> int:
@@ -221,7 +243,9 @@ def estimate(db: Session, kind: str, target_id: uuid.UUID, document_ids: list[uu
     in_tok = estimate_tokens(chars) + 900  # 지시문 여유
     provider = get_ai_provider()
     pname = provider.name if provider else (os.environ.get("AI_PROVIDER", "").strip().lower() or "anthropic")
-    cost = estimate_cost_usd(pname, in_tok, EST_OUTPUT_TOKENS)
+    pmodel = provider.model if provider else (os.environ.get("AI_MODEL", "").strip() or None)
+    price, price_version, _ = get_price(db, pname, pmodel)
+    cost = cost_usd(price, in_tok, EST_OUTPUT_TOKENS)
     blockers = []
     if not inputs:
         blockers.append("원문 전문이 확보된 문서가 없어 분석을 보류합니다(근거 부족).")
@@ -229,9 +253,10 @@ def estimate(db: Session, kind: str, target_id: uuid.UUID, document_ids: list[uu
         "kind": kind, "target_type": target_type, "target_id": str(target_id), "documents": [
             {k: i[k] for k in ("id", "title", "org", "country", "published", "url", "chars", "truncated", "full_chars")} for i in inputs
         ], "skipped": skipped, "input_chars": chars, "est_input_tokens": in_tok, "est_output_tokens": EST_OUTPUT_TOKENS,
-        "est_cost_usd": cost, "provider": pname, "model": provider.model if provider else None, "configured": provider is not None,
+        "est_cost_usd": cost, "pricing_version": price_version, "price_known": price is not None, "provider": pname, "model": pmodel, "configured": provider is not None,
         "is_mock": bool(provider and provider.name == "mock"), "blockers": blockers, "existing_candidate_ids": extra.get("existing_candidate_ids", []),
-        "price_note": "비용은 토큰 수를 거칠게 추정한 값이며 실제 청구액과 다를 수 있습니다(환경변수 AI_PRICE_*로 단가 조정).",
+        "price_note": ("비용은 토큰 수를 거칠게 추정한 값이며 실제 제공자 청구액과 다를 수 있습니다. 단가 기준: " + (price_version or "단가 미설정 — 관리자가 '가격표'에서 설정해야 비용을 계산할 수 있습니다")
+                       + (" · 모의 응답은 실제 비용을 검증하지 않습니다" if pname == "mock" else "")),
     }
 
 
@@ -321,32 +346,47 @@ def run_analysis(
             notes.append(f"{i['title'][:50]} — 원문 안에 명령문처럼 보이는 문구({', '.join(hits)})가 있어 데이터로만 취급했습니다")
         if i["truncated"]:
             notes.append(f"{i['title'][:50]} — 원문 앞 {MAX_CHARS_PER_DOC:,}자만 분석(전체 {i['full_chars']:,}자)")
+    price, price_version, _ = get_price(db, provider.name, provider.model)
     a = AIAnalysis(
         kind=kind, target_type=target_type, target_id=target_id, requested_by_user_id=user.id, status="running", verification_status="ai_unverified",
         provider=provider.name, model=provider.model, is_mock=provider.name == "mock", prompt_version=PROMPT_VERSION, request_key=key,
         source_fingerprint=fingerprint(inputs), input_documents_json=json.dumps([{k: v for k, v in i.items() if k != "text"} for i in inputs], ensure_ascii=False),
         input_chars=sum(i["chars"] for i in inputs), est_input_tokens=est_in,
-        est_cost_usd=estimate_cost_usd(provider.name, est_in, EST_OUTPUT_TOKENS), started_at=now,
+        est_cost_usd=cost_usd(price, est_in, EST_OUTPUT_TOKENS) or 0.0, pricing_version=price_version, started_at=now,
     )
     db.add(a)
     db.commit()  # 호출 도중 취소·중복 요청이 보이도록 먼저 커밋
+    a.provider_request_sent = True  # 이 시점부터는 제공자에게 요청이 전달된 것으로 본다(취소해도 비용이 발생했을 수 있음)
+    db.commit()
     try:
-        result = provider.complete_json(system, user_prompt, max_tokens=4096)
+        result = provider.complete_json(system, user_prompt, max_tokens=MAX_OUTPUT_TOKENS)
         payload = extract_json_object(result.text)
     except AIServiceError as exc:
-        a.status, a.error_message, a.finished_at = "failed", str(exc)[:1000], _utcnow()
+        db.refresh(a)
+        a.status, a.error_code, a.finished_at = "failed", exc.code, _utcnow()
+        a.error_message = f"{exc.user_message} | {str(exc)[:600]}"
+        if exc.usage:  # 응답은 받았지만 쓸 수 없는 경우(잘림 등)에도 사용한 토큰은 기록한다
+            a.input_tokens, a.output_tokens = exc.usage
+            c = cost_usd(price, *exc.usage)
+            a.actual_cost_usd = c
         db.commit()
         return a, False
 
     db.refresh(a)
-    if a.cancelled:  # 호출 중 취소됨 — 결과를 저장하지 않는다
+    a.input_tokens, a.output_tokens = result.input_tokens, result.output_tokens
+    if result.input_tokens or result.output_tokens:
+        a.actual_cost_usd = cost_usd(price, result.input_tokens, result.output_tokens)
+    if a.cancelled:  # 호출 중 취소됨 — 결과는 저장하지 않지만 이미 제공자에게 요청이 갔으므로 비용은 발생했을 수 있다
         a.status, a.finished_at = "cancelled", _utcnow()
+        a.cancel_note = "취소를 눌렀지만 요청은 이미 외부 제공자에게 전달되어 응답까지 처리되었습니다 — 비용이 발생했을 수 있으며 결과는 저장하지 않았습니다(DB 상태만 취소)"
         db.commit()
         return a, False
 
-    a.input_tokens, a.output_tokens = result.input_tokens, result.output_tokens
-    if result.input_tokens or result.output_tokens:
-        a.actual_cost_usd = estimate_cost_usd(provider.name, result.input_tokens, result.output_tokens)
+    # 분석 도중 원문이 바뀌었는지 확인한다 — 바뀌었으면 이 결과는 이전 원문 기준이므로 재분석이 필요하다고 표시한다
+    fresh_inputs, _ = build_inputs(db, docs)
+    if fingerprint(fresh_inputs) != a.source_fingerprint:
+        a.source_changed_during_run = True
+        notes.append("분석 도중 원문이 변경되었습니다 — 이 결과는 변경 전 원문 기준이므로 '다시 분석'이 필요합니다")
     sections = store_claims(db, a, kind, payload, inputs, notes)
     a.result_json = json.dumps({"sections": sections, "insufficient": bool(payload.get("insufficient")), "model_notes": [str(n)[:300] for n in (payload.get("notes") or [])][:10]}, ensure_ascii=False)
     a.notes_json = json.dumps(notes, ensure_ascii=False)
@@ -355,6 +395,42 @@ def run_analysis(
     a.verification_status = derive_verification(db, a)
     db.flush()
     return a, False
+
+
+def expire_stale(db: Session) -> int:
+    """오래 'running'으로 남은 분석(브라우저 종료·서버 재시작 등)을 '중단됨'으로 정리한다 — 무한히 분석 중으로 보이지 않게 한다."""
+    limit = _utcnow() - timedelta(minutes=STALE_RUNNING_MINUTES)
+    n = 0
+    for a in db.scalars(select(AIAnalysis).where(AIAnalysis.status == "running")).all():
+        if _aware(a.started_at) < limit:
+            a.status, a.error_code, a.finished_at = "failed", "interrupted", _utcnow()
+            a.error_message = ("분석이 중단되었습니다(브라우저 종료·서버 재시작·응답 없음) — 제공자에게 요청이 전달되었다면 비용이 발생했을 수 있습니다"
+                               if a.provider_request_sent else "분석이 시작되기 전에 중단되었습니다")
+            n += 1
+    if n:
+        db.commit()
+    return n
+
+
+def usage_summary(db: Session, user: User | None = None, days: int = 1) -> dict:
+    """사용자별(또는 전체) 최근 N일 AI 사용량. 비용은 추정/계산값이며 제공자 청구액과 구분한다."""
+    since = _utcnow() - timedelta(days=days)
+    q = select(AIAnalysis).where(AIAnalysis.created_at >= since)
+    if user is not None:
+        q = q.where(AIAnalysis.requested_by_user_id == user.id)
+    rows = db.scalars(q).all()
+    by_status: dict[str, int] = {}
+    for r in rows:
+        by_status[r.status] = by_status.get(r.status, 0) + 1
+    real = [r for r in rows if not r.is_mock]
+    return {
+        "days": days, "requests": len(rows), "by_status": by_status, "provider_requests_sent": sum(1 for r in rows if r.provider_request_sent),
+        "input_tokens": sum(r.input_tokens for r in rows), "output_tokens": sum(r.output_tokens for r in rows),
+        "est_cost_usd": round(sum(r.est_cost_usd for r in real), 4), "calculated_cost_usd": round(sum(r.actual_cost_usd or 0 for r in real), 4),
+        "mock_requests": sum(1 for r in rows if r.is_mock), "failed_or_cancelled": sum(1 for r in rows if r.status in ("failed", "cancelled")),
+        "cost_note": "예상·계산 비용은 관리자가 설정한 단가 기준의 추정치이며 실제 제공자 청구금액이 아닙니다. 모의 호출은 실제 비용을 검증하지 않습니다.",
+        "daily_limit_per_user": daily_limit(),
+    }
 
 
 def _aware(dt: datetime) -> datetime:
@@ -408,6 +484,11 @@ def verify_item(db: Session, analysis: AIAnalysis, key: str, seq: int, item: dic
             found_quotes.append(quote)
         else:
             bad += 1
+            for other in by_alias.values():  # 발췌문이 다른 입력 문서에 있으면 '잘못된 문서에 연결'이다
+                if other["id"] != src["id"] and ai_evidence.locate_quote(_full_text_of(db, other["id"]) or "", quote)[0]:
+                    why = f"이 발췌문은 {other['alias']}({other['title'][:40]})에 있습니다 — 잘못된 문서에 근거를 연결함"
+                    note_parts.append(why)
+                    break
         evidences.append({"document_id": src["id"], "url": src["url"], "title": src["title"], "quote": quote[:600], "found": found, "location": loc, "note": why})
 
     if ctype == "interpretation":
@@ -425,8 +506,19 @@ def verify_item(db: Session, analysis: AIAnalysis, key: str, seq: int, item: dic
         if problems:
             status = "value_mismatch"
             note_parts.append("문장의 " + ", ".join(problems) + " 이(가) 근거 발췌문에 없음 — 근거 불일치")
+            elsewhere = []
+            for e in evidences:
+                if e.get("document_id"):
+                    elsewhere += ai_evidence.value_elsewhere(problems, _full_text_of(db, e["document_id"]) or "")
+            if elsewhere:
+                note_parts.append("같은 값이 원문 다른 위치에는 있음(" + ", ".join(sorted(set(elsewhere))) + ") — 근거를 엉뚱한 위치에 연결했을 수 있음")
         else:
-            status = "found"
+            flags = ai_evidence.semantic_flags(text, " ".join(found_quotes))
+            if flags:
+                status = "semantic_risk"
+                note_parts.append("값은 발췌문에 있으나 의미가 달라졌을 수 있음 — " + "; ".join(flags))
+            else:
+                status = "found"
     if key == "disputes" and ctype == "fact" and status in ("found",):
         if len({e["document_id"] for e in evidences if e["found"]}) < 2:
             status = "no_evidence"
@@ -459,7 +551,7 @@ def _full_text_of(db: Session, document_id: str) -> str | None:
 def derive_verification(db: Session, analysis: AIAnalysis) -> str:
     claims = db.scalars(select(AIClaim).where(AIClaim.analysis_id == analysis.id)).all()
     facts = [c for c in claims if c.claim_type == "fact" and c.researcher_status != "rejected"]
-    if any(c.evidence_status in ("not_found", "value_mismatch") and c.researcher_status != "verified" for c in facts):
+    if any(c.evidence_status in ("not_found", "value_mismatch", "semantic_risk") and c.researcher_status != "verified" for c in facts):
         return "mismatch"
     if any(c.evidence_status == "no_evidence" and c.researcher_status != "verified" for c in facts):
         return "insufficient"
@@ -492,5 +584,6 @@ def claim_stats(db: Session, analysis_id: uuid.UUID) -> dict:
     facts = [c for c in claims if c.claim_type == "fact"]
     bad = [c for c in facts if c.evidence_status in ("not_found", "value_mismatch", "no_evidence")]
     return {"total": len(claims), "facts": len(facts), "facts_without_valid_evidence": len(bad),
+            "semantic_risk": sum(1 for c in facts if c.evidence_status == "semantic_risk"),
             "ratio_without_valid_evidence": round(len(bad) / len(facts), 3) if facts else 0.0,
             "researcher_verified": sum(1 for c in claims if c.researcher_status == "verified")}

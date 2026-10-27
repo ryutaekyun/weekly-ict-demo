@@ -56,12 +56,24 @@ def compute_needs_reexamination(db: Session, manuscript: Manuscript) -> tuple[bo
     if mismatched:
         reasons.append(f"근거 불일치로 표시된 각주 {len(mismatched)}건이 있습니다")
 
+    from app.services import ai_insertion_service
+
+    changed = ai_insertion_service.open_changes_for(db, "manuscript", manuscript.id)
+    if changed:
+        reasons.append(f"AI가 제안해 삽입한 문장 {len(changed)}건의 근거 원문이 바뀌었습니다 — 연구원 재검토 전에는 기존 검증 상태를 신뢰할 수 없습니다")
+
     return (len(reasons) > 0, " / ".join(reasons) if reasons else None)
 
 
 def footnote_verification_summary(db: Session, manuscript_id: uuid.UUID) -> tuple[int, int]:
     footnotes = db.query(ManuscriptFootnote).filter_by(manuscript_id=manuscript_id).all()
-    verified = sum(1 for f in footnotes if f.verification_status.value == "matched")
+    from app.models.ai_analysis import AIInsertion
+    from app.services import ai_insertion_service
+
+    # 근거 원문이 바뀐 AI 삽입 문장의 각주는 '검증 완료'로 세지 않는다(연구원이 다시 확인하기 전까지)
+    stale_marks = {i.footnote_mark_id for i in db.query(AIInsertion).filter_by(manuscript_id=manuscript_id, status="active").all()
+                   if i.footnote_mark_id and ai_insertion_service.change_detail(db, i) is not None}
+    verified = sum(1 for f in footnotes if f.verification_status.value == "matched" and f.mark_id not in stale_marks)
     return len(footnotes), verified
 
 
@@ -159,6 +171,11 @@ def approve_internal(db: Session, manuscript: Manuscript, *, approver_user_id: u
     if manuscript.status != ManuscriptStatus.REVIEW_REQUESTED:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="검토 요청 상태에서만 최종 승인할 수 있습니다")
     from app.models.approval import Approval
+    from app.services import ai_insertion_service
+
+    stale = ai_insertion_service.open_changes_for(db, "manuscript", manuscript.id)
+    if stale:  # 근거 원문이 바뀐 AI 삽입 문장을 연구원이 재검토하기 전에는 최종 승인할 수 없다
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"AI 삽입 문장 {len(stale)}건의 근거 원문이 변경되어 재검토가 필요합니다 — 재검토 후 승인하세요")
 
     db.add(Approval(
         approvable_type=ApprovableType.MANUSCRIPT, approvable_id=manuscript.id,

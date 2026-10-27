@@ -172,3 +172,6 @@ body {
   display: table-caption;
   font-size: 12.5px; font-weight: 600; color: var(--ink-muted); text-align: left; padding-bottom: 4px;
 }
+
+/* AI가 제안해 삽입된 문장 — 연구원 검토용 초안 표시 */
+.ai-inserted { background: rgba(37, 99, 235, 0.10); border-bottom: 1px dashed #2563eb; }

@@ -8,6 +8,7 @@ import { TableKit } from "@tiptap/extension-table/kit";
 import { Table } from "@tiptap/extension-table";
 import { useEffect } from "react";
 import { FootnoteMark } from "@/lib/footnoteMark";
+import { AiInsertMark } from "@/lib/aiInsertMark";
 
 // 표 제목(caption) 속성: 출력 시 "[표 n-m] 제목"으로 인쇄된다
 const CaptionTable = Table.extend({
@@ -53,6 +54,7 @@ export default function ManuscriptEditor({
       TableKit.configure({ table: false }),
       CaptionTable.configure({ resizable: false }),
       FootnoteMark,
+      AiInsertMark,
     ],
     content: initialContent || "<p></p>",
     editable,

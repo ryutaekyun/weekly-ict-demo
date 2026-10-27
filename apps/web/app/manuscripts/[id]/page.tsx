@@ -1,6 +1,8 @@
 "use client";
 
 import AiPanel from "@/components/AiPanel";
+import AiInsertionsPanel from "@/components/AiInsertionsPanel";
+import { aiListInsertions, type AiInsertionRow } from "@/lib/aiApi";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -71,6 +73,7 @@ export default function ManuscriptWorkspacePage() {
   const [error, setError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "conflict" | "error">("idle");
   const [rightTab, setRightTab] = useState<RightTab>("context");
+  const [insertions, setInsertions] = useState<AiInsertionRow[]>([]);
   const [footnoteDraft, setFootnoteDraft] = useState<{ text: string; from: number; to: number } | null>(null);
   const [footnoteForm, setFootnoteForm] = useState({ source_url: "", source_org: "", excerpt: "", location_label: "", source_document_id: "" });
   const [commentText, setCommentText] = useState("");
@@ -107,6 +110,7 @@ export default function ManuscriptWorkspacePage() {
     listFootnotes(id).then(setFootnotes).catch(() => {});
     listManuscriptComments(id).then(setComments).catch(() => {});
     listManuscriptVersions(id).then(setVersions).catch(() => {});
+    aiListInsertions(id).then(setInsertions).catch(() => setInsertions([]));
   }, [params.id, router]);
 
   useEffect(() => {
@@ -134,12 +138,24 @@ export default function ManuscriptWorkspacePage() {
     return fresh.lock_version;
   }
 
+  const aiTarget = {
+    id: params.id, getLockVersion: ensureSavedLock, onInserted: reloadAfterAiInsert,
+    // 편집기 커서가 있는 최상위 문단의 인덱스와 소제목 목록 — 현재 커서·소제목 아래 삽입에 쓴다
+    getCursorIndex: () => (editorRef.current ? editorRef.current.state.selection.$from.index(0) : null),
+    getHeadings: () => {
+      const out: string[] = [];
+      editorRef.current?.state.doc.forEach((n) => { if (n.type.name === "heading") out.push(n.textContent); });
+      return out;
+    },
+  };
+
   async function reloadAfterAiInsert() {
     const fresh = await getManuscript(params.id);
     setManuscript(fresh);
     if (editorRef.current && fresh.body_json) editorRef.current.commands.setContent(JSON.parse(fresh.body_json), { emitUpdate: false });
     listFootnotes(params.id).then(setFootnotes).catch(() => {});
     listManuscriptVersions(params.id).then(setVersions).catch(() => {});
+    aiListInsertions(params.id).then(setInsertions).catch(() => {});
   }
 
   function scheduleSave(json: string, text: string) {
@@ -500,16 +516,23 @@ export default function ManuscriptWorkspacePage() {
             <button className="tbtn" style={tabStyle(rightTab === "footnotes")} onClick={() => setRightTab("footnotes")}>각주({footnoteOrder.length || footnotes.length})</button>
             <button className="tbtn" style={tabStyle(rightTab === "comments")} onClick={() => setRightTab("comments")}>검토의견({comments.filter((c) => c.status === "open").length})</button>
             <button className="tbtn" style={tabStyle(rightTab === "versions")} onClick={() => setRightTab("versions")}>버전({versions.length})</button>
-            {manuscript.candidate_id && <button className="tbtn" style={tabStyle(rightTab === "ai")} onClick={() => setRightTab("ai")} data-testid="tab-ai">AI 제안</button>}
+            {(manuscript.candidate_id || insertions.length > 0) && (
+              <button className="tbtn" style={tabStyle(rightTab === "ai")} onClick={() => setRightTab("ai")} data-testid="tab-ai">
+                AI 제안{insertions.some((i) => i.needs_review) ? " ⚠ 재검토" : ""}
+              </button>
+            )}
           </div>
 
           {rightTab === "context" && <ContextPanel context={context} />}
-          {rightTab === "ai" && manuscript.candidate_id && (
+          {rightTab === "ai" && (
             <>
-              <AiPanel kind="outline" targetId={manuscript.candidate_id} title="AI 목차 제안" buttonLabel="AI 목차 제안" testId="ai-panel-outline"
-                manuscript={{ id: manuscript.id, getLockVersion: ensureSavedLock, onInserted: reloadAfterAiInsert }} />
-              <AiPanel kind="draft" targetId={manuscript.candidate_id} title="AI 초안 제안 (연구원 검토용 초안 · 선택한 문장만 삽입)" buttonLabel="AI 초안 제안" testId="ai-panel-draft"
-                manuscript={{ id: manuscript.id, getLockVersion: ensureSavedLock, onInserted: reloadAfterAiInsert }} />
+              <AiInsertionsPanel rows={insertions} getLockVersion={ensureSavedLock} onChanged={reloadAfterAiInsert} />
+              {manuscript.candidate_id && (
+                <>
+                  <AiPanel kind="outline" targetId={manuscript.candidate_id} title="AI 목차 제안" buttonLabel="AI 목차 제안" testId="ai-panel-outline" manuscript={aiTarget} />
+                  <AiPanel kind="draft" targetId={manuscript.candidate_id} title="AI 초안 제안 (연구원 검토용 초안 · 선택한 문장만 삽입)" buttonLabel="AI 초안 제안" testId="ai-panel-draft" manuscript={aiTarget} />
+                </>
+              )}
             </>
           )}
 

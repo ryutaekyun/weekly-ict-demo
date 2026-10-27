@@ -78,6 +78,9 @@ def open_notices_for(db: Session, entity_type: str, entity_id: uuid.UUID) -> lis
         if (entity_type, entity_id) in acked(db, n.id):
             continue
         out.append(notice_out(n))
+    from app.services import ai_insertion_service  # AI 삽입 문장의 근거 원문이 바뀐 경우도 같은 '재검토 필요' 통로로 전달한다
+
+    out.extend(ai_insertion_service.open_changes_for(db, entity_type, entity_id))
     return out
 
 

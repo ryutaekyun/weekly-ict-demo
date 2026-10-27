@@ -1,7 +1,7 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -50,8 +50,60 @@ class AIAnalysis(Base, UUIDPKMixin, TimestampMixin):
     public_approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     public_approved_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
 
+    error_code: Mapped[str | None] = mapped_column(String(30), nullable=True)  # auth_error|model_error|rate_limited|timeout|provider_5xx|bad_response|truncated|...
+    provider_request_sent: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)  # 외부 제공자에게 요청을 실제로 보냈는지(비용 발생 가능)
+    pricing_version: Mapped[str | None] = mapped_column(String(60), nullable=True)  # 비용 계산에 쓴 단가 기준(예: "anthropic/claude-sonnet-5-5 v1 2026-10-27")
+    cancel_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_changed_during_run: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AIPriceSetting(Base, UUIDPKMixin, TimestampMixin):
+    """관리자가 갱신하는 제공자·모델별 토큰 단가(USD/100만 토큰). 코드에 가격표를 박아 두지 않는다. 비용은 항상 '추정'이며 실제 청구액과 다를 수 있다."""
+
+    __tablename__ = "ai_price_settings"
+
+    provider: Mapped[str] = mapped_column(String(30), nullable=False)
+    model: Mapped[str] = mapped_column(String(80), nullable=False)  # 정확한 모델 ID
+    input_per_mtok: Mapped[float] = mapped_column(Float, nullable=False)
+    output_per_mtok: Mapped[float] = mapped_column(Float, nullable=False)
+    effective_date: Mapped[date] = mapped_column(Date, nullable=False)  # 요금 기준일
+    source_note: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    updated_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+
+
+class AIInsertion(Base, UUIDPKMixin, TimestampMixin):
+    """AI 문장이 원고에 삽입된 기록 — 삽입 시점의 원문 버전·발췌문과 AI 원문/연구원 최종 문장을 구분해 보존하고,
+    원문이 바뀌면 재검토 필요를 판단하는 기준이 된다. 과거 승인본·출력본은 이 기록과 무관하게 보존된다."""
+
+    __tablename__ = "ai_insertions"
+
+    analysis_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("ai_analyses.id"), nullable=False)
+    claim_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("ai_claims.id"), nullable=False)
+    manuscript_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("manuscripts.id"), nullable=False, index=True)
+    footnote_mark_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    document_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("source_documents.id"), nullable=True)
+    inserted_by_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+
+    ai_text: Mapped[str] = mapped_column(Text, nullable=False)  # AI가 만든 원래 문장
+    final_text: Mapped[str] = mapped_column(Text, nullable=False)  # 연구원이 고쳐 실제 삽입한 문장
+    edited_by_researcher: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    quote_at_insert: Mapped[str | None] = mapped_column(Text, nullable=True)  # 삽입 시점의 근거 발췌문
+    source_hash_at_insert: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    baseline_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)  # 연구원이 마지막으로 확인한 원문 버전(삽입 시 = at_insert)
+    position_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    status: Mapped[str] = mapped_column(String(12), default="active", nullable=False)  # active | undone | removed
+    last_review_resolution: Mapped[str | None] = mapped_column(String(16), nullable=True)  # updated | no_impact | needs_check | removed
+    last_review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_reviewed_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    last_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_review_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)  # 확인한 원문 버전
+    review_history_json: Mapped[str | None] = mapped_column(Text, nullable=True)  # 이전 검토 이력(append-only)
 
 
 class AIClaim(Base, UUIDPKMixin, TimestampMixin):

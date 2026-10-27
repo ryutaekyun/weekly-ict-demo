@@ -189,7 +189,12 @@ export default function DocumentDetailPage() {
         </form>
       </section>
 
-      <AiPanel kind="document" targetId={params.id} title="AI 분석 (원문 근거 기반 · 규칙 기반 결과와 별도 보존)" buttonLabel="AI 분석 요청" testId="ai-panel-document" />
+      <AiPanel kind="document" targetId={params.id} title="AI 분석 (원문 근거 기반 · 규칙 기반 결과와 별도 보존)" buttonLabel="AI 분석 요청" testId="ai-panel-document"
+        ruleBased={[
+          { label: "분야(규칙 기반 분류)", text: meta.primary_field_code ? FIELD_LABELS[meta.primary_field_code] ?? meta.primary_field_code : "" },
+          { label: "핵심 내용", text: analysis?.structured_extract?.key_content ?? "" },
+          { label: "정책·기술 변경", text: analysis?.structured_extract?.policy_tech_change ?? "" },
+        ]} />
 
       {analysis?.structured_extract && (
         <section className="panel" style={{ marginBottom: 16 }}>

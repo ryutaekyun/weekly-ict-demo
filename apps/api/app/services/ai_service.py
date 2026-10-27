@@ -1,15 +1,15 @@
-"""공급자 중립 AI 연동 서비스 — 분류·활용가치판정·구조화추출이 공통으로 쓴다.
+"""공급자 중립 AI 연동 서비스 — 분류·활용가치판정·구조화추출·3-6 분석이 공통으로 쓴다.
 
 설계 원칙:
 - 서버 측 환경변수로만 API 키를 읽는다(요청·DB에 키를 저장하지 않는다).
 - AI_PROVIDER/AI_MODEL이 설정되지 않았거나 해당 공급자의 API 키 환경변수가 없으면
   get_ai_provider()가 None을 반환한다 — 호출부는 반드시 이 경우 규칙 기반으로 대체해야 하고,
   그 결과를 "AI 분석 완료"로 표시해서는 안 된다(ClassificationMethod.RULE_BASED로 저장).
-- 긴 원문은 chunk_text()로 분할해 보낸다. 분할 결과를 병합하는 책임은 호출부(개별 분석 서비스)에 있다.
-- 호출 실패는 예외를 삼키지 않고 AIServiceError로 올려서, 호출부가 AIAnalysisRun에
-  status="failed"와 에러 메시지를 남기고 규칙 기반으로 폴백할 수 있게 한다.
-- 이 단계에서는 공개 원문(수집한 ICT 기사·정책문서)만 전송 대상으로 한다 — 비공개 원고·내부
-  문서를 사용자 확인 없이 외부 LLM에 보내는 호출부는 만들지 않는다.
+- 모델 ID를 추측하지 않는다. Anthropic 기본값 claude-sonnet-5-5는 공식 모델 문서(platform.claude.com, 2026-10-27 확인)에 있는 ID이고,
+  OpenAI는 공식 문서를 이 환경에서 대조하지 못해 기본 모델을 두지 않는다(AI_MODEL을 직접 지정해야 한다).
+- 호출 실패는 예외를 삼키지 않고 AIServiceError(하위 종류별)로 올려서 호출부가 status="failed"와 정확한 사유를 남기게 한다.
+  인증·권한·모델·한도·토큰 초과·시간 초과·5xx·잘못된 응답·응답 잘림을 구분하며 자동 재시도는 하지 않는다(재시도는 비용이 된다).
+- 이 단계에서는 공개 원문(수집한 ICT 기사·정책문서)만 전송 대상으로 한다.
 """
 
 import json
@@ -19,14 +19,55 @@ from typing import Protocol
 
 import httpx
 
-AI_PROVIDER_ENV = "AI_PROVIDER"  # "anthropic" | "openai"
+AI_PROVIDER_ENV = "AI_PROVIDER"  # "anthropic" | "openai" (| "mock": 개발·테스트 전용)
 AI_MODEL_ENV = "AI_MODEL"
 MAX_CHUNK_CHARS = 8000
-REQUEST_TIMEOUT_SECONDS = 60.0
+REQUEST_TIMEOUT_SECONDS = 120.0
+ANTHROPIC_VERSION = "2023-06-01"
 
 
 class AIServiceError(Exception):
-    pass
+    """호출 실패. code는 화면·이력에 남기는 분류값이다."""
+
+    code = "provider_error"
+    user_message = "AI 호출에 실패했습니다"
+    usage: tuple[int, int] | None = None  # (입력, 출력) 토큰 — 응답은 받았지만 쓸 수 없을 때(잘림 등) 비용 기록용
+
+    def __init__(self, message: str | None = None, *, http_status: int | None = None):
+        super().__init__(message or self.user_message)
+        self.http_status = http_status
+
+
+class AIAuthError(AIServiceError):
+    code, user_message = "auth_error", "API 키가 올바르지 않거나 권한이 없습니다(401/403) — 키와 조직 권한을 확인하세요"
+
+
+class AIModelError(AIServiceError):
+    code, user_message = "model_error", "모델 ID가 없거나 이 키로 사용할 수 없습니다 — AI_MODEL 설정을 확인하세요"
+
+
+class AIRateLimitError(AIServiceError):
+    code, user_message = "rate_limited", "제공자의 요청 한도를 초과했습니다(429) — 잠시 후 다시 시도하세요"
+
+
+class AIContextError(AIServiceError):
+    code, user_message = "context_too_large", "입력이 모델의 컨텍스트·토큰 제한을 넘었습니다 — 문서 수를 줄여 다시 요청하세요"
+
+
+class AITimeoutError(AIServiceError):
+    code, user_message = "timeout", "응답 시간이 초과되었습니다 — 제공자에게 요청이 전달되었다면 비용이 발생했을 수 있습니다"
+
+
+class AIServerError(AIServiceError):
+    code, user_message = "provider_5xx", "제공자 서버 오류입니다(5xx) — 잠시 후 다시 시도하세요"
+
+
+class AIBadResponseError(AIServiceError):
+    code, user_message = "bad_response", "응답 형식이 올바르지 않아 결과를 사용할 수 없습니다(JSON 오류)"
+
+
+class AITruncatedError(AIServiceError):
+    code, user_message = "truncated", "응답이 길이 제한으로 잘려 결과를 사용할 수 없습니다 — 입력을 줄이거나 출력 한도를 늘려야 합니다"
 
 
 @dataclass
@@ -36,6 +77,7 @@ class AIResult:
     text: str
     input_tokens: int = 0  # 공급자가 돌려준 실제 사용량(모의·미보고 시 0)
     output_tokens: int = 0
+    stop_reason: str | None = None
 
 
 class AIProvider(Protocol):
@@ -45,6 +87,44 @@ class AIProvider(Protocol):
     def complete_json(self, system_prompt: str, user_prompt: str, max_tokens: int = 2000) -> AIResult: ...
 
 
+def _raise_for_status(resp: httpx.Response, provider: str) -> None:
+    """HTTP 상태를 종류별 예외로 바꾼다. 오류 본문은 앞부분만 쓴다."""
+    if resp.status_code < 400:
+        return
+    try:
+        body = resp.json()
+        msg = (body.get("error", {}) or {}).get("message") if isinstance(body, dict) else None
+    except ValueError:
+        msg = None
+    detail = f"{provider} {resp.status_code}: {(msg or resp.text or '')[:200]}"
+    s = resp.status_code
+    low = (msg or "").lower()
+    if s in (401, 403):
+        raise AIAuthError(detail, http_status=s)
+    if s == 404:
+        raise AIModelError(detail, http_status=s)
+    if s == 429:
+        raise AIRateLimitError(detail, http_status=s)
+    if s == 413 or (s == 400 and any(k in low for k in ("too long", "context", "maximum", "max_tokens", "exceed"))):
+        raise AIContextError(detail, http_status=s)
+    if s == 400 and "model" in low:
+        raise AIModelError(detail, http_status=s)
+    if s >= 500:
+        raise AIServerError(detail, http_status=s)
+    raise AIServiceError(detail, http_status=s)
+
+
+def _http(method: str, url: str, provider: str, **kwargs) -> httpx.Response:
+    try:
+        resp = httpx.request(method, url, timeout=REQUEST_TIMEOUT_SECONDS, **kwargs)
+    except httpx.TimeoutException as exc:
+        raise AITimeoutError(f"{provider} 시간 초과: {exc.__class__.__name__}") from exc
+    except httpx.HTTPError as exc:
+        raise AIServiceError(f"{provider} 연결 실패: {exc.__class__.__name__}") from exc
+    _raise_for_status(resp, provider)
+    return resp
+
+
 class AnthropicProvider:
     name = "anthropic"
 
@@ -52,31 +132,35 @@ class AnthropicProvider:
         self.api_key = api_key
         self.model = model
 
+    def _headers(self) -> dict:
+        return {"x-api-key": self.api_key, "anthropic-version": ANTHROPIC_VERSION, "content-type": "application/json"}
+
     def complete_json(self, system_prompt: str, user_prompt: str, max_tokens: int = 2000) -> AIResult:
+        resp = _http("POST", "https://api.anthropic.com/v1/messages", self.name, headers=self._headers(), json={
+            "model": self.model, "max_tokens": max_tokens, "system": system_prompt, "messages": [{"role": "user", "content": user_prompt}],
+        })
         try:
-            resp = httpx.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": self.api_key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": self.model,
-                    "max_tokens": max_tokens,
-                    "system": system_prompt,
-                    "messages": [{"role": "user", "content": user_prompt}],
-                },
-                timeout=REQUEST_TIMEOUT_SECONDS,
-            )
-            resp.raise_for_status()
             data = resp.json()
-            text = "".join(block.get("text", "") for block in data.get("content", []))
+            text = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type", "text") == "text")
             usage = data.get("usage", {}) or {}
-        except httpx.HTTPError as exc:
-            raise AIServiceError(f"Anthropic API 호출 실패: {exc}") from exc
-        return AIResult(provider=self.name, model=self.model, text=text,
-                        input_tokens=int(usage.get("input_tokens", 0) or 0), output_tokens=int(usage.get("output_tokens", 0) or 0))
+            stop = data.get("stop_reason")
+        except (ValueError, AttributeError) as exc:
+            raise AIBadResponseError("Anthropic 응답을 해석하지 못함") from exc
+        used = (int(usage.get("input_tokens", 0) or 0), int(usage.get("output_tokens", 0) or 0))
+        if stop == "max_tokens":  # 잘린 JSON은 파싱하지 않고 실패로 기록한다(토큰 사용량은 남긴다)
+            err = AITruncatedError(f"Anthropic stop_reason=max_tokens (출력 {used[1]}토큰에서 잘림)")
+            err.usage = used
+            raise err
+        if stop == "refusal":
+            err = AIBadResponseError("모델이 요청을 거절했습니다(stop_reason=refusal)")
+            err.usage = used
+            raise err
+        return AIResult(provider=self.name, model=self.model, text=text, stop_reason=stop, input_tokens=used[0], output_tokens=used[1])
+
+    def list_models(self) -> list[str]:
+        """키로 실제 사용 가능한 모델 ID 목록(진단용). 토큰을 쓰지 않는 조회 호출이다."""
+        data = _http("GET", "https://api.anthropic.com/v1/models?limit=100", self.name, headers=self._headers()).json()
+        return [m["id"] for m in data.get("data", []) if "id" in m]
 
 
 class OpenAIProvider:
@@ -86,36 +170,36 @@ class OpenAIProvider:
         self.api_key = api_key
         self.model = model
 
+    def _headers(self) -> dict:
+        return {"Authorization": f"Bearer {self.api_key}", "content-type": "application/json"}
+
     def complete_json(self, system_prompt: str, user_prompt: str, max_tokens: int = 2000) -> AIResult:
+        resp = _http("POST", "https://api.openai.com/v1/chat/completions", self.name, headers=self._headers(), json={
+            "model": self.model, "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+            "response_format": {"type": "json_object"}, "max_tokens": max_tokens,
+        })
         try:
-            resp = httpx.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers={"Authorization": f"Bearer {self.api_key}", "content-type": "application/json"},
-                json={
-                    "model": self.model,
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                    "response_format": {"type": "json_object"},
-                    "max_tokens": max_tokens,
-                },
-                timeout=REQUEST_TIMEOUT_SECONDS,
-            )
-            resp.raise_for_status()
             data = resp.json()
-            text = data["choices"][0]["message"]["content"]
+            choice = data["choices"][0]
+            text = choice["message"]["content"] or ""
             usage = data.get("usage", {}) or {}
-        except (httpx.HTTPError, KeyError, IndexError) as exc:
-            raise AIServiceError(f"OpenAI API 호출 실패: {exc}") from exc
-        return AIResult(provider=self.name, model=self.model, text=text,
-                        input_tokens=int(usage.get("prompt_tokens", 0) or 0), output_tokens=int(usage.get("completion_tokens", 0) or 0))
+            stop = choice.get("finish_reason")
+        except (ValueError, KeyError, IndexError, TypeError) as exc:
+            raise AIBadResponseError("OpenAI 응답을 해석하지 못함") from exc
+        used = (int(usage.get("prompt_tokens", 0) or 0), int(usage.get("completion_tokens", 0) or 0))
+        if stop == "length":
+            err = AITruncatedError("OpenAI finish_reason=length (출력 한도에서 잘림)")
+            err.usage = used
+            raise err
+        return AIResult(provider=self.name, model=self.model, text=text, stop_reason=stop, input_tokens=used[0], output_tokens=used[1])
+
+    def list_models(self) -> list[str]:
+        data = _http("GET", "https://api.openai.com/v1/models", self.name, headers=self._headers()).json()
+        return sorted(m["id"] for m in data.get("data", []) if "id" in m)
 
 
-_DEFAULT_MODELS = {
-    "anthropic": "claude-sonnet-5-5",
-    "openai": "gpt-4o-mini",
-}
+# 공식 문서로 확인한 기본값만 둔다(추측 금지). OpenAI는 기본 모델 없음 → AI_MODEL 필수.
+_DEFAULT_MODELS = {"anthropic": "claude-sonnet-5-5"}
 
 
 def get_ai_provider() -> AIProvider | None:
@@ -131,17 +215,32 @@ def get_ai_provider() -> AIProvider | None:
         from app.services.ai_mock import MockProvider
 
         return MockProvider()
+    if not model:
+        return None  # 모델 미지정(OpenAI 등) — 추측하지 않고 설정 필요로 처리
     if provider_name == "anthropic":
         key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
-        if not key:
-            return None
-        return AnthropicProvider(api_key=key, model=model)
+        return AnthropicProvider(api_key=key, model=model) if key else None
     if provider_name == "openai":
         key = os.environ.get("OPENAI_API_KEY", "").strip()
-        if not key:
-            return None
-        return OpenAIProvider(api_key=key, model=model)
+        return OpenAIProvider(api_key=key, model=model) if key else None
     return None
+
+
+def configuration_gaps() -> list[str]:
+    """설정이 덜 된 이유를 키 값 없이 알려 준다(진단·화면 안내용)."""
+    name = os.environ.get(AI_PROVIDER_ENV, "").strip().lower()
+    if not name:
+        return ["AI_PROVIDER가 설정되지 않음"]
+    if name == "mock":
+        return [] if os.environ.get("AI_ALLOW_MOCK", "").strip() == "1" else ["모의 공급자는 AI_ALLOW_MOCK=1이 필요함"]
+    if name not in ("anthropic", "openai"):
+        return [f"지원하지 않는 AI_PROVIDER: {name}"]
+    gaps = []
+    if not (os.environ.get(AI_MODEL_ENV, "").strip() or _DEFAULT_MODELS.get(name)):
+        gaps.append("AI_MODEL이 필요함(이 공급자는 기본 모델을 두지 않음)")
+    if not os.environ.get("ANTHROPIC_API_KEY" if name == "anthropic" else "OPENAI_API_KEY", "").strip():
+        gaps.append("API 키 환경변수가 설정되지 않음")
+    return gaps
 
 
 def chunk_text(text: str, max_chars: int = MAX_CHUNK_CHARS) -> list[str]:
@@ -181,30 +280,21 @@ def extract_json_object(raw_text: str) -> dict:
     start = text.find("{")
     end = text.rfind("}")
     if start == -1 or end == -1 or end < start:
-        raise AIServiceError(f"AI 응답에서 JSON 객체를 찾지 못함: {raw_text[:200]!r}")
+        raise AIBadResponseError(f"AI 응답에서 JSON 객체를 찾지 못함: {raw_text[:200]!r}")
     try:
         return json.loads(text[start : end + 1])
     except json.JSONDecodeError as exc:
-        raise AIServiceError(f"AI 응답 JSON 파싱 실패: {exc}") from exc
+        raise AIBadResponseError(f"AI 응답 JSON 파싱 실패: {exc}") from exc
 
 
-# 토큰 단가(USD/100만 토큰) — 공개 요금표가 바뀔 수 있으므로 '추정'으로만 쓰고 환경변수로 덮어쓸 수 있다.
-_DEFAULT_PRICES = {"anthropic": (3.0, 15.0), "openai": (0.15, 0.6), "mock": (0.0, 0.0)}
-
-
-def price_per_mtok(provider: str) -> tuple[float, float]:
-    base = _DEFAULT_PRICES.get(provider, (3.0, 15.0))
-    try:
-        return (float(os.environ.get("AI_PRICE_IN_PER_MTOK", base[0])), float(os.environ.get("AI_PRICE_OUT_PER_MTOK", base[1])))
-    except ValueError:
-        return base
-
-
+# ---------------------------------------------------------------- 토큰·비용 추정 ----
 def estimate_tokens(chars: int) -> int:
     """문자 수로 토큰을 거칠게 추정한다(한글·영문 혼합 기준 약 2.5자/토큰, 보수적으로 크게 잡음)."""
     return int(chars / 2.5) + 1
 
 
-def estimate_cost_usd(provider: str, input_tokens: int, output_tokens: int) -> float:
-    pin, pout = price_per_mtok(provider)
-    return round(input_tokens * pin / 1_000_000 + output_tokens * pout / 1_000_000, 4)
+def cost_usd(price: tuple[float, float] | None, input_tokens: int, output_tokens: int) -> float | None:
+    """단가(USD/100만 토큰: 입력, 출력)로 비용을 계산한다. 단가를 모르면 None — 0원으로 표시하지 않는다."""
+    if price is None:
+        return None
+    return round(input_tokens * price[0] / 1_000_000 + output_tokens * price[1] / 1_000_000, 4)

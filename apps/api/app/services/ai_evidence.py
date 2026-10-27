@@ -118,3 +118,78 @@ def scan_injection(text: str) -> list[str]:
 def strip_urls(text: str) -> tuple[str, bool]:
     cleaned = URL_RE.sub("", text or "").strip()
     return cleaned, cleaned != (text or "").strip()
+
+
+# ---------------------------------------------------------------- 의미 불일치 가능성(값은 있지만 뜻이 달라진 주장) ----
+ROLE_PATTERNS = {
+    "시행일": re.compile(r"시행|발효|적용 개시|take[s]? effect|effective|come[s]? into (?:force|effect)|become[s]? effective|applies? (?:on|from)", re.I),
+    "발표일": re.compile(r"발표|공고|공표|게재|고시|제정안|published|announced|issued|released|proposed", re.I),
+    "준수 시한": re.compile(r"준수|이행|제출 기한|마감|시한|기한|comply|compliance|must (?:be|document|submit)|deadline|no later than|due\b", re.I),
+    "의견수렴 마감": re.compile(r"의견 ?수렴|의견 제출|comment[s]? (?:are )?due|comment period|submit comments", re.I),
+}
+UNIT_ALIASES = {"%": "%", "퍼센트": "%", "percent": "%", "kg": "kg", "㎏": "kg", "g": "g", "t": "t", "톤": "t", "ton": "t", "tons": "t",
+                "gw": "gw", "mw": "mw", "ghz": "ghz", "mhz": "mhz", "nm": "nm", "tb": "tb", "gb": "gb", "원": "원", "달러": "usd", "usd": "usd", "$": "usd",
+                "명": "명", "건": "건", "개": "개", "배": "배", "년": "년", "개월": "개월", "일": "일", "days": "일", "months": "개월", "years": "년"}
+_UNIT_RE = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s?(%|퍼센트|percent|kg|㎏|g|톤|tons?|t|gw|mw|ghz|mhz|nm|tb|gb|원|달러|usd|\$|명|건|개월|개|배|년|일|days|months|years)(?![a-z])", re.I)
+GT = re.compile(r"초과|이상|넘|over|more than|greater than|exceed|at least|above", re.I)
+LT = re.compile(r"미만|이하|under|less than|below|at most|no more than|fewer than", re.I)
+NEG_KO = re.compile(r"않|아니|없|불가|금지|제외|못 ?한|면제|배제")
+NEG_EN = re.compile(r"\b(?:not|no|never|without|prohibit\w*|exempt\w*|except|unless|cannot|can't|doesn't|don't|isn't|aren't)\b", re.I)
+
+
+def date_roles(text: str) -> dict[str, set[str]]:
+    """문장 속 각 날짜 앞뒤 문맥에서 날짜의 역할(시행일·발표일·준수 시한·의견수렴 마감)을 추정한다."""
+    roles: dict[str, set[str]] = {}
+    for pat, conv in DATE_PATTERNS:
+        for m in pat.finditer(text or ""):
+            try:
+                y, mo, d = conv(m)
+                iso = f"{int(y):04d}-{int(mo):02d}-{int(d):02d}"
+            except (ValueError, KeyError):
+                continue
+            ctx = text[max(0, m.start() - 70) : m.end() + 20]
+            found = {name for name, rp in ROLE_PATTERNS.items() if rp.search(ctx)}
+            roles.setdefault(iso, set()).update(found)
+    return roles
+
+
+def unit_pairs(text: str) -> list[tuple[str, str]]:
+    return [(n.replace(",", ""), UNIT_ALIASES.get(u.lower(), u.lower())) for n, u in _UNIT_RE.findall(_strip_dates(text or ""))]
+
+
+def semantic_flags(claim_text: str, quote: str) -> list[str]:
+    """값(날짜·수치)이 발췌문에 존재하더라도 뜻이 달라졌을 가능성(날짜 역할·단위·부등호·부정)을 알린다. 단정이 아니라 '검토 필요' 신호다."""
+    flags: list[str] = []
+    cr, qr = date_roles(claim_text), date_roles(quote)
+    for iso, c_roles in cr.items():
+        q_roles = qr.get(iso)
+        if c_roles and q_roles and not (c_roles & q_roles):
+            flags.append(f"날짜 {iso}의 역할이 다름(문장: {'/'.join(sorted(c_roles))} ↔ 발췌문: {'/'.join(sorted(q_roles))})")
+    cu, qu = unit_pairs(claim_text), unit_pairs(quote)
+    q_by_num: dict[str, set[str]] = {}
+    for n, u in qu:
+        q_by_num.setdefault(n, set()).add(u)
+    for n, u in cu:
+        if n in q_by_num and u not in q_by_num[n]:
+            flags.append(f"수치 {n}의 단위가 다름(문장: {u} ↔ 발췌문: {'/'.join(sorted(q_by_num[n]))})")
+    c_dir = {"초과·이상" if GT.search(claim_text) else None, "미만·이하" if LT.search(claim_text) else None} - {None}
+    q_dir = {"초과·이상" if GT.search(quote) else None, "미만·이하" if LT.search(quote) else None} - {None}
+    if len(c_dir) == 1 and len(q_dir) == 1 and c_dir != q_dir:
+        flags.append(f"수량 조건이 반대일 수 있음(문장: {next(iter(c_dir))} ↔ 발췌문: {next(iter(q_dir))})")
+    c_neg = bool(NEG_KO.search(claim_text)) or bool(NEG_EN.search(claim_text))
+    q_neg = bool(NEG_EN.search(quote)) or bool(NEG_KO.search(quote))
+    if c_neg != q_neg:
+        flags.append("부정·긍정 의미가 다를 수 있음(문장과 발췌문의 부정 표현 유무가 다름)")
+    return flags
+
+
+def value_elsewhere(problems: list[str], full_text: str) -> list[str]:
+    """발췌문에는 없지만 같은 문서의 다른 위치에는 있는 값 — 근거를 엉뚱한 위치에 연결했을 가능성."""
+    out = []
+    dates = extract_dates(full_text)
+    nums = extract_numbers(full_text)
+    for p in problems:
+        kind, _, val = p.partition(" ")
+        if (kind == "날짜" and val in dates) or (kind == "수치" and val in nums):
+            out.append(p)
+    return out

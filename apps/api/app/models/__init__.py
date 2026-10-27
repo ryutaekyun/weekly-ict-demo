@@ -93,4 +93,4 @@ __all__ = [
     "CandidateScoringConfig",
     "CandidateRecommendationScore",
 ]
-from app.models.ai_analysis import AIAnalysis, AIClaim
+from app.models.ai_analysis import AIAnalysis, AIClaim, AIInsertion, AIPriceSetting

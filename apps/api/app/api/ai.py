@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from app.core.audit import log_action
 from app.core.db import get_db
 from app.core.deps import get_current_user, require_roles
-from app.models.ai_analysis import AIAnalysis, AIClaim
+from app.models.ai_analysis import AIAnalysis, AIClaim, AIInsertion, AIPriceSetting
 from app.models.candidate import Candidate
 from app.models.enums import FieldCode, UserRole
 from app.models.issue_cluster import IssueCluster
@@ -25,8 +25,7 @@ from app.models.manuscript_footnote import ManuscriptFootnote
 from app.models.source_document import SourceDocument
 from app.models.user import User
 from app.services import ai_analysis_service as svc
-from app.services import manuscript_footnote_service, manuscript_service
-from app.services.manuscript_service import ManuscriptConflictError
+from app.services import ai_insertion_service, ai_service
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 APPROVER_ROLES = (UserRole.ADMIN, UserRole.APPROVER)
@@ -57,6 +56,25 @@ class InsertIn(BaseModel):
     claim_ids: list[uuid.UUID] = Field(min_length=1)
     lock_version: int
     edited_texts: dict[str, str] = {}  # claim_id → 연구원이 고친 문장(없으면 AI 원문 그대로)
+    position: dict | None = None  # {"mode": "end"} | {"mode": "after_index", "index": n} | {"mode": "after_heading", "heading_text": "..."}
+
+
+class InsertionReviewIn(BaseModel):
+    resolution: str  # updated | no_impact | needs_check | removed
+    note: str
+
+
+class UndoIn(BaseModel):
+    lock_version: int
+
+
+class PriceIn(BaseModel):
+    provider: str
+    model: str = Field(min_length=2, max_length=80)
+    input_per_mtok: float = Field(ge=0)
+    output_per_mtok: float = Field(ge=0)
+    effective_date: date
+    source_note: str | None = None
 
 
 def _aware(dt: datetime | None) -> datetime | None:
@@ -80,7 +98,8 @@ def _analysis_out(db: Session, a: AIAnalysis, *, detail: bool = True, reused: bo
         "prompt_version": a.prompt_version, "source_fingerprint": a.source_fingerprint,
         "input_documents": json.loads(a.input_documents_json or "[]"), "input_tokens": a.input_tokens, "output_tokens": a.output_tokens,
         "est_input_tokens": a.est_input_tokens, "est_cost_usd": a.est_cost_usd, "actual_cost_usd": a.actual_cost_usd,
-        "error_message": a.error_message, "notes": json.loads(a.notes_json or "[]"), "started_at": _aware(a.started_at).isoformat(),
+        "error_message": a.error_message, "error_code": a.error_code, "provider_request_sent": a.provider_request_sent, "pricing_version": a.pricing_version,
+        "cancel_note": a.cancel_note, "source_changed_during_run": a.source_changed_during_run, "notes": json.loads(a.notes_json or "[]"), "started_at": _aware(a.started_at).isoformat(),
         "finished_at": _aware(a.finished_at).isoformat() if a.finished_at else None, "reused": reused,
         "hold_reason": result.get("hold_reason"), "linked_candidate_id": str(a.linked_candidate_id) if a.linked_candidate_id else None,
         "public_approved_at": _aware(a.public_approved_at).isoformat() if a.public_approved_at else None,
@@ -98,6 +117,59 @@ def _analysis_out(db: Session, a: AIAnalysis, *, detail: bool = True, reused: bo
 @router.get("/status")
 def ai_status(_: User = Depends(get_current_user)):
     return svc.ai_status()
+
+
+@router.get("/usage")
+def usage(days: int = Query(1, ge=1, le=90), scope: str = "me", db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    svc.expire_stale(db)
+    if scope == "all":
+        if current_user.role not in APPROVER_ROLES:
+            raise HTTPException(status_code=403, detail="전체 사용량은 승인권자·관리자만 볼 수 있습니다")
+        return svc.usage_summary(db, None, days)
+    return svc.usage_summary(db, current_user, days)
+
+
+@router.get("/pricing")
+def list_pricing(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    rows = db.scalars(select(AIPriceSetting).order_by(AIPriceSetting.provider, AIPriceSetting.model, AIPriceSetting.version.desc())).all()
+    return [{"id": str(r.id), "provider": r.provider, "model": r.model, "input_per_mtok": r.input_per_mtok, "output_per_mtok": r.output_per_mtok,
+             "effective_date": r.effective_date.isoformat(), "source_note": r.source_note, "version": r.version, "is_active": r.is_active} for r in rows]
+
+
+@router.put("/pricing")
+def set_pricing(payload: PriceIn, db: Session = Depends(get_db), current_user: User = Depends(require_roles(UserRole.ADMIN))):
+    """관리자가 제공자·모델별 단가를 갱신한다. 이전 단가는 보존(비활성)하고 새 버전을 만든다 — 과거 분석의 비용 기준이 바뀌지 않는다."""
+    prev = db.scalars(select(AIPriceSetting).where(AIPriceSetting.provider == payload.provider, AIPriceSetting.model == payload.model)).all()
+    for r in prev:
+        r.is_active = False
+    row = AIPriceSetting(provider=payload.provider, model=payload.model, input_per_mtok=payload.input_per_mtok, output_per_mtok=payload.output_per_mtok,
+                         effective_date=payload.effective_date, source_note=payload.source_note, version=max((r.version for r in prev), default=0) + 1,
+                         is_active=True, updated_by_user_id=current_user.id)
+    db.add(row)
+    db.flush()
+    log_action(db, actor_user_id=current_user.id, action="ai.pricing_update", entity_type="ai_price_setting", entity_id=row.id,
+               detail={"provider": row.provider, "model": row.model, "version": row.version, "in": row.input_per_mtok, "out": row.output_per_mtok})
+    db.commit()
+    return {"id": str(row.id), "version": row.version}
+
+
+@router.post("/diagnostics")
+def diagnostics(current_user: User = Depends(require_roles(UserRole.ADMIN))):
+    """관리자 전용 연결 진단 — 키가 있을 때만 모델 목록 조회(토큰을 쓰지 않는 호출)로 설정한 모델이 실제 사용 가능한지 확인한다.
+    키가 없으면 '연결 미검증'으로 돌려주며 성공으로 보고하지 않는다."""
+    provider = ai_service.get_ai_provider()
+    if provider is None:
+        return {"connection": "not_configured", "verified": False, "message": "연결 미검증 — " + "; ".join(ai_service.configuration_gaps() or ["설정 없음"])}
+    if provider.name == "mock":
+        return {"connection": "mock", "verified": False, "message": "모의 공급자입니다 — 실제 연결을 검증하지 않았습니다(연결 미검증)", "model": provider.model}
+    try:
+        models = provider.list_models()  # type: ignore[attr-defined]
+    except ai_service.AIServiceError as exc:
+        return {"connection": "failed", "verified": False, "error_code": exc.code, "message": f"{exc.user_message} | {str(exc)[:300]}", "model": provider.model}
+    available = provider.model in models
+    return {"connection": "ok" if available else "model_unavailable", "verified": available, "model": provider.model, "available_models": models[:60],
+            "message": "키로 조회한 모델 목록에 설정한 모델이 있습니다(모델 목록 조회만 확인했고 분석 호출은 하지 않았습니다)" if available else
+            f"설정한 모델 '{provider.model}'이(가) 이 키로 조회되는 목록에 없습니다 — AI_MODEL을 확인하세요"}
 
 
 @router.post("/estimate")
@@ -131,6 +203,7 @@ def list_analyses(
     target_id: uuid.UUID | None = None, kind: str | None = None, limit: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db), _: User = Depends(get_current_user),
 ):
+    svc.expire_stale(db)
     q = select(AIAnalysis).order_by(AIAnalysis.created_at.desc()).limit(limit)
     if target_id:
         q = q.where(AIAnalysis.target_id == target_id)
@@ -148,6 +221,7 @@ def _get_analysis(db: Session, analysis_id: uuid.UUID) -> AIAnalysis:
 
 @router.get("/analyses/{analysis_id}")
 def get_analysis(analysis_id: uuid.UUID, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    svc.expire_stale(db)
     return _analysis_out(db, _get_analysis(db, analysis_id))
 
 
@@ -159,7 +233,9 @@ def cancel(analysis_id: uuid.UUID, db: Session = Depends(get_db), current_user: 
     if a.status != "running":
         raise HTTPException(status_code=409, detail="진행 중인 분석만 취소할 수 있습니다")
     a.cancelled = True
-    log_action(db, actor_user_id=current_user.id, action="ai.cancel", entity_type="ai_analysis", entity_id=a.id)
+    a.cancel_note = ("DB 상태만 취소합니다 — 외부 제공자에게 요청이 이미 전달되었으므로 호출을 중단할 수 없고 비용이 발생할 수 있습니다. 응답이 오면 결과는 저장하지 않습니다."
+                     if a.provider_request_sent else "제공자 호출 전에 취소되었습니다")
+    log_action(db, actor_user_id=current_user.id, action="ai.cancel", entity_type="ai_analysis", entity_id=a.id, detail={"provider_request_sent": a.provider_request_sent})
     db.commit()
     return _analysis_out(db, a, detail=False)
 
@@ -227,60 +303,68 @@ def candidate_from_analysis(analysis_id: uuid.UUID, payload: CandidateFromAIIn, 
     return {"candidate_id": str(cand.id), "created": created}
 
 
-# ------------------------------------------------------------ 원고 삽입 ----
+# ------------------------------------------------------------ 원고 삽입·삽입 취소·원문 변경 재검토 ----
+def _get_manuscript(db: Session, manuscript_id: uuid.UUID, user: User) -> Manuscript:
+    manuscript = db.get(Manuscript, manuscript_id)
+    if manuscript is None:
+        raise HTTPException(status_code=404, detail="원고를 찾을 수 없습니다")
+    if manuscript.author_user_id != user.id and user.role not in (*APPROVER_ROLES, UserRole.RESEARCHER):
+        raise HTTPException(status_code=403, detail="원고를 수정할 권한이 없습니다")
+    return manuscript
+
+
 @router.post("/analyses/{analysis_id}/insert")
 def insert_into_manuscript(analysis_id: uuid.UUID, payload: InsertIn, db: Session = Depends(get_db), current_user: User = Depends(require_roles(*svc.ALLOWED_ROLES))):
-    """연구원이 고른 문장만 원고 끝에 덧붙인다. 기존 본문·승인·각주는 바꾸지 않고, 삽입 각주는 미검증으로 시작한다."""
+    """연구원이 고른 문장만 원하는 위치(커서 문단 뒤·소제목 아래·원고 끝)에 덧붙인다. 기존 본문·승인·각주는 바꾸지 않고(현재 lock_version 확인),
+    삽입 문장은 AI 표시와 미검증 각주로 시작하며 삽입 기록(AI 원문·연구원 최종 문장·원문 버전)을 남긴다."""
     a = _get_analysis(db, analysis_id)
     if a.kind not in ("draft", "outline"):
         raise HTTPException(status_code=422, detail="초안·목차 제안만 원고에 삽입할 수 있습니다")
-    manuscript = db.get(Manuscript, payload.manuscript_id)
-    if manuscript is None:
-        raise HTTPException(status_code=404, detail="원고를 찾을 수 없습니다")
-    if manuscript.author_user_id != current_user.id and current_user.role not in (*APPROVER_ROLES, UserRole.RESEARCHER):
-        raise HTTPException(status_code=403, detail="원고를 수정할 권한이 없습니다")
-    claims = [c for c in db.scalars(select(AIClaim).where(AIClaim.analysis_id == a.id, AIClaim.id.in_(payload.claim_ids))).all()]
-    if len(claims) != len(set(payload.claim_ids)):
+    manuscript = _get_manuscript(db, payload.manuscript_id, current_user)
+    found = {c.id: c for c in db.scalars(select(AIClaim).where(AIClaim.analysis_id == a.id, AIClaim.id.in_(payload.claim_ids))).all()}
+    if len(found) != len(set(payload.claim_ids)):
         raise HTTPException(status_code=422, detail="선택한 문장이 이 분석에 속하지 않습니다")
-    by_id = {str(c.id): c for c in claims}
-    try:
-        body = json.loads(manuscript.body_json) if manuscript.body_json else {"type": "doc", "content": []}
-    except json.JSONDecodeError:
-        body = {"type": "doc", "content": []}
-    body.setdefault("content", [])
-    plain_add: list[str] = []
-    footnote_count = 0
-    for cid in payload.claim_ids:
-        c = by_id[str(cid)]
-        text = (payload.edited_texts.get(str(cid)) or c.text).strip()
-        marks: list[dict] = []
-        evs = [e for e in json.loads(c.evidence_json or "[]") if e.get("document_id") and e.get("quote")]
-        if c.claim_type == "fact" and evs and c.evidence_status != "not_found":
-            ev = evs[0]
-            mark_id = f"fn-{uuid.uuid4().hex[:12]}"
-            doc = db.get(SourceDocument, uuid.UUID(ev["document_id"]))
-            manuscript_footnote_service.create_footnote(
-                db, manuscript_id=manuscript.id, created_by_user_id=current_user.id, mark_id=mark_id, anchor_text=text[:500],
-                source_url=(doc.origin_url if doc and doc.origin_url else ev.get("url") or ""), source_document_id=doc.id if doc else None,
-                source_org=None, excerpt=ev["quote"][:1500], location_label=ev.get("location"), published_at=doc.published_at if doc else None,
-            )
-            marks = [{"type": "footnoteMark", "attrs": {"footnoteId": mark_id}}]
-            footnote_count += 1
-        node = {"type": "paragraph", "content": [{"type": "text", "text": text, **({"marks": marks} if marks else {})}]}
-        body["content"].append(node)
-        plain_add.append(text)
-        c.inserted_manuscript_id = manuscript.id
-    try:
-        manuscript_service.update_manuscript_body(
-            db, manuscript, title=None, title_en=None, body_json=json.dumps(body, ensure_ascii=False),
-            body=((manuscript.body or "") + "\n" + "\n".join(plain_add)).strip(), lock_version=payload.lock_version,
-            actor_user_id=current_user.id, change_note=f"AI 제안 {len(claims)}문장 삽입(연구원 선택·미검증)", is_milestone=False,
-        )
-    except ManuscriptConflictError as exc:
-        db.rollback()
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    claims = [found[i] for i in payload.claim_ids]
+    out = ai_insertion_service.insert_claims(db, a, manuscript, current_user, claims, lock_version=payload.lock_version,
+                                             edited_texts=payload.edited_texts, position=payload.position)
     log_action(db, actor_user_id=current_user.id, action="ai.insert", entity_type="manuscript", entity_id=manuscript.id,
-               detail={"analysis_id": str(a.id), "claims": len(claims), "footnotes": footnote_count})
+               detail={"analysis_id": str(a.id), "claims": len(claims), "footnotes": out["footnotes_created"], "position": payload.position or {"mode": "end"}})
     db.commit()
-    return {"manuscript_id": str(manuscript.id), "lock_version": manuscript.lock_version, "inserted": len(claims), "footnotes_created": footnote_count,
+    return {**out, "manuscript_id": str(manuscript.id), "lock_version": manuscript.lock_version,
             "note": "삽입된 문장과 각주는 자동으로 검증 완료가 되지 않습니다. 원고 작업실에서 근거를 확인하세요."}
+
+
+@router.get("/manuscripts/{manuscript_id}/insertions")
+def list_insertions(manuscript_id: uuid.UUID, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    if db.get(Manuscript, manuscript_id) is None:
+        raise HTTPException(status_code=404, detail="원고를 찾을 수 없습니다")
+    return ai_insertion_service.list_for_manuscript(db, manuscript_id)
+
+
+def _get_insertion(db: Session, insertion_id: uuid.UUID) -> AIInsertion:
+    ins = db.get(AIInsertion, insertion_id)
+    if ins is None:
+        raise HTTPException(status_code=404, detail="AI 삽입 기록을 찾을 수 없습니다")
+    return ins
+
+
+@router.post("/insertions/{insertion_id}/undo")
+def undo_insertion(insertion_id: uuid.UUID, payload: UndoIn, db: Session = Depends(get_db), current_user: User = Depends(require_roles(*svc.ALLOWED_ROLES))):
+    ins = _get_insertion(db, insertion_id)
+    manuscript = _get_manuscript(db, ins.manuscript_id, current_user)
+    out = ai_insertion_service.undo_insertion(db, ins, manuscript, current_user, payload.lock_version)
+    log_action(db, actor_user_id=current_user.id, action="ai.insert_undo", entity_type="manuscript", entity_id=manuscript.id, detail={"insertion_id": str(ins.id)})
+    db.commit()
+    return {**out, "lock_version": manuscript.lock_version}
+
+
+@router.post("/insertions/{insertion_id}/review")
+def review_insertion(insertion_id: uuid.UUID, payload: InsertionReviewIn, db: Session = Depends(get_db), current_user: User = Depends(require_roles(*svc.ALLOWED_ROLES))):
+    """원문 변경 후 연구원의 재검토 판단(수정 반영 완료·영향 없음·추가 확인 필요·문장 삭제/대체)을 검토자·일시·사유·확인한 원문 버전과 함께 기록한다."""
+    ins = _get_insertion(db, insertion_id)
+    manuscript = _get_manuscript(db, ins.manuscript_id, current_user)
+    ai_insertion_service.review_insertion(db, ins, manuscript, current_user, payload.resolution, payload.note)
+    log_action(db, actor_user_id=current_user.id, action="ai.insertion_review", entity_type="ai_insertion", entity_id=ins.id,
+               detail={"resolution": payload.resolution, "note": payload.note, "manuscript_id": str(manuscript.id)})
+    db.commit()
+    return ai_insertion_service.insertion_out(db, ins)
