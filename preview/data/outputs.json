@@ -1,0 +1,8 @@
+{"items":[
+{"title":"[시범] 일반호 보고서(후속 규정 반영) — 개발용 출력 테스트","note":"미국 NHTSA FMVSS 305a 공식 원문(연방관보) 기반 시범 출력. 시행일 연기 후속 공식 문서를 반영한 사례입니다. 실제 발간물이 아니며 임시 표준 템플릿(IITP 공식 양식 아님)·IITP 공식 확인 전 내부 검토용 초안입니다. Microsoft Word 실제 열람은 미검증(LibreOffice 변환 확인).",
+ "files":[{"label":"PDF 열기","path":"outputs/report-general-followup.pdf"},{"label":"DOCX 받기","path":"outputs/report-general-followup.docx"}]},
+{"title":"[시범] 카드뉴스 A — FMVSS 305a 핵심 요약 (4장)","note":"같은 장면 데이터에서 PPTX와 PNG를 만든 시범 결과입니다. 실제 발간물이 아닙니다. PowerPoint 실제 열람은 미검증.",
+ "files":[{"label":"PPTX 받기","path":"outputs/cardnews-A.pptx"},{"label":"1장 PNG","path":"outputs/cardnews-A/card-01.png"},{"label":"2장 PNG","path":"outputs/cardnews-A/card-02.png"},{"label":"3장 PNG","path":"outputs/cardnews-A/card-03.png"},{"label":"4장 PNG","path":"outputs/cardnews-A/card-04.png"}]},
+{"title":"[시범] 카드뉴스 B — FMVSS 305a 추진 일정","note":"시행일 연기(후속 공식 문서) 반영 일정 카드입니다. 실제 발간물이 아닙니다. PowerPoint 실제 열람은 미검증.",
+ "files":[{"label":"PPTX 받기","path":"outputs/cardnews-B.pptx"}]}
+]}
